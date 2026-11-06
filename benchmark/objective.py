@@ -45,7 +45,7 @@ def predict_score(model, X):
 class Objective(BaseObjective):
 
     name = "wildfire-daily-risk"
-    url = "https://github.com/x-datascience-datacamp/template_codabench"
+    url = "https://github.com/charleliec/forest-fire-prediction"
 
     requirements = ["scikit-learn", "pandas"]
 
