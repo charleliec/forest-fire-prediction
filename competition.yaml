@@ -1,10 +1,13 @@
 version: 2
-title: "Template competition: dummy classification"
+title: "Where will fires start today? Daily wildfire risk in France"
 description: >
-  Template for a benchopt-powered Codabench competition: a binary
-  classification task scored by accuracy. Submissions are code (a benchopt
-  solver) that trains on the platform. The public leaderboard column scores
-  a public test set; the final ranking uses a hidden private test set.
+  Every day, rank the 25 km cells of metropolitan France by their risk of a
+  wildfire starting that day, so that firefighting resources can be
+  pre-positioned. Data: the French forest-fire database BDIFF (2015-2025),
+  Météo-France SIM2 daily weather and MODIS MOD13Q1 NDVI. Score: the share of
+  fires that start in each day's 50 highest-risk cells. Submissions are code
+  (a benchopt solver) that trains on the platform. The public leaderboard
+  scores the year 2018; the final ranking uses the hidden year 2025.
 image: logo.png
 registration_auto_approve: False
 
@@ -27,7 +30,7 @@ pages:
 
 tasks:
   - index: 0
-    name: Classification
+    name: Daily wildfire risk
     description: >
       The ingestion program runs the benchopt benchmark on your submission
       (training on the platform); scoring parses the results.
@@ -51,7 +54,7 @@ phases:
       test set; the final ranking uses the hidden private test set.
     start: 2026-11-02 00:00:00
     end: 2027-03-31 23:59:59
-    execution_time_limit: 600
+    execution_time_limit: 3600
     max_submissions_per_day: 5
     # Keep the test predictions and the hidden private metric private.
     hide_prediction_output: True
@@ -67,24 +70,37 @@ leaderboards:
   - title: Results
     key: main
     columns:
-      - title: Accuracy (public)
-        key: accuracy_public
+      - title: Fires captured, top 50 (2018)
+        key: capture_public
         index: 0
         sorting: desc
-      - title: Accuracy (private)
-        key: accuracy_private
+      - title: Fires captured, top 50 (2025)
+        key: capture_private
         index: 1
         sorting: desc
         hidden: True
-      - title: Accuracy (CV)
-        key: accuracy_cv
+      - title: Average precision (2018)
+        key: ap_public
         index: 2
+        sorting: desc
+      - title: Average precision (2025)
+        key: ap_private
+        index: 3
+        sorting: desc
+        hidden: True
+      - title: Fires captured, top 50 (CV)
+        key: capture_cv
+        index: 4
+        sorting: desc
+      - title: Average precision (CV)
+        key: ap_cv
+        index: 5
         sorting: desc
       - title: Train time (s)
         key: train_time
-        index: 3
+        index: 6
         sorting: asc
       - title: Duration (s)
         key: duration
-        index: 4
+        index: 7
         sorting: asc

@@ -14,7 +14,14 @@ By participating in this competition you agree to the following.
 4. **Reproducibility.** The organizers may re-run any submission to verify its
    leaderboard score. A submission that cannot be reproduced may be removed.
 5. **Data usage.** The data are provided for use within this competition
-   only.
+   only. They are built from public sources (BDIFF, Météo-France SIM2, NASA
+   MODIS). Using **any record of the fires of the test years** (2018 and
+   2025), from BDIFF or elsewhere, in your submission, its training or its
+   hyper-parameter choices is cheating. Your model may only learn from the
+   data handed to it by the platform.
+6. **Code review.** The organizers review the code of the top submissions
+   before the final ranking. A submission whose score relies on information
+   other than the data handed to it is removed.
 
 <!-- BEGIN DataCamp course section. Delete up to END for a general release. -->
 In the DataCamp course, cheating also results in a grade of 0 for the course

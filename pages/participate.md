@@ -6,29 +6,57 @@ with the data analysis behind each choice.
 
 ## The task
 
-**TODO:** one paragraph: the data, what is predicted from what, and why it
-matters.
-In this template: a binary classification of tabular samples.
+Every summer, French fire services pre-position crews, trucks and aircraft
+where they expect fires to start. Your model helps decide where: **every day,
+rank the 1,104 cells of 25 km × 25 km covering metropolitan France by their
+risk of a wildfire starting that day.**
+
+One row is a (cell, day). The label `fire` is 1 when at least one wildfire
+alert was recorded in the cell that day in the French forest-fire database
+[BDIFF](https://bdiff.agriculture.gouv.fr/) (fires of 10 m² or more, overseas
+territories excluded), about 0.6% of the rows. The features are:
+
+- the cell: `cell_id`, its centre `x`, `y` (Lambert-93, km) and `lon`, `lat`;
+- the day: `date`;
+- the weather of the day, from the Météo-France SIM2 reanalysis averaged over
+  the cell: temperatures (`t_min`, `t_mean`, `t_max`), `rain`, `snow`,
+  `wind`, humidity (`rh`, `q`), radiation, evapotranspiration (`etp`,
+  `evap`), soil wetness (`swi`, `wg_root`), `snow_depth`;
+- the weather of the previous days (never the day itself): rain over 3, 7
+  and 30 days, `days_since_rain`, 7-day means of `t_max` and `rh`,
+  `swi_prev`;
+- the vegetation: the last MODIS MOD13Q1 NDVI composite (250 m, 16 days)
+  completed before the day, averaged over the cell (`ndvi`), its anomaly
+  with respect to the cell's usual NDVI at that time of year (`ndvi_anom`),
+  and its age in days (`ndvi_age`).
 
 ## The metric
 
-**TODO:** the metric, whether higher or lower is better, and why it fits
-the use case. In this template: **accuracy** (higher is better).
+**Fires captured in the daily top 50** (higher is better): each day, the 50
+cells your model scores highest (about 4.5% of the territory) are the ones
+reinforced; the metric is the share of all fire (cell, day) rows of the test
+year that fall in their day's top 50. Only the ranking of the cells *within
+a day* matters. Ties are counted as broken at random: a constant prediction
+scores 50 / 1,104 ≈ 0.045.
+
+**Average precision** (higher is better) is shown as a second column: it
+ranks all the (cell, day) rows of the year together, so it also rewards
+telling quiet days from busy ones.
 
 ## The split
 
-**TODO:** the unit held out (rows, patients, sites, time periods) and the
-generalization it measures. If the test sets differ from the training set on
-purpose (new sites, later dates), say so.
+Whole years are held out, because days of the same season share their
+weather, their vegetation and their fires.
 
-Your model is trained and scored with 5-fold cross-validation on the
-training data, then each fold's model predicts the test sets. Every score is
-averaged over the 5 folds.
+- **Training data**: 2015-2017 and 2019-2024.
+- **CV column**: 5-fold cross-validation on the training data, each fold
+  holding out whole years (`GroupKFold` on the year).
+- **Public column** (live feedback): the year 2018, a mild fire year.
+- **Private / final ranking** (hidden): the year 2025.
 
-- **CV column**: the cross-validation score.
-- **Public column** (live feedback): a public test set.
-- **Private / final ranking** (hidden): a private test set. Do not overfit
-  the public column.
+Each fold's model predicts both test years, and every score is averaged over
+the 5 folds. Select your models on the CV score rather than on the public
+one: a single year is a noisy benchmark.
 
 ## What you submit
 
@@ -53,10 +81,18 @@ class Solver(CompetSolver):
         ...
 ```
 
-Your trained model must expose `predict(X) -> ndarray (n_samples,)`. The
-platform **trains your code**, once per fold, then evaluates it. Copy
-`benchmark/solvers/random-forest.py`, a working baseline, to
+`X_train` is a pandas DataFrame with the columns above (`date` is a
+datetime), `y_train` the 0/1 `fire` label. Your trained model must expose
+`predict_proba(X)` (the second column is used as the risk score), or
+`predict(X) -> ndarray (n_samples,)` returning a risk score, for instance a
+predicted number of fires. The platform **trains your code**, once per fold,
+then evaluates it, within the execution time limit. Copy
+`benchmark/solvers/hgb.py`, a working gradient-boosting baseline, to
 `my_submission/submission.py`.
+
+Use only the columns you are given: the rows of the test years come
+without their label, and any external record of their fires is forbidden
+(see the terms).
 
 ## Run it locally, same code as the server
 
@@ -66,15 +102,15 @@ then:
 
 ```bash
 pip install -r requirements.txt
-benchopt prepare benchmark --config local_config.yml   # builds the data
 benchopt run benchmark --config local_config.yml
 ```
 
-A command-line option overrides the file, e.g. `-s my_submission/submission.py`
-runs your submission alone.
+with the prepared `train.parquet`, `public.parquet` and `private.parquet`
+(features only) of the starting kit in `benchmark/data/real/`. A command-line option overrides the file, e.g.
+`-s my_submission/submission.py` runs your submission alone, and
+`-d Simulated` runs on a small synthetic dataset.
 
-The cross-validation and public scores you get locally
-(`objective_accuracy_cv` and `objective_accuracy_public`, averaged over the 5
-repetitions) are the CV and public columns of the leaderboard. The benchmark
-you run *is* the benchmark the server runs. Select your models on the CV
-score rather than on the public one.
+The cross-validation and public scores you get locally (`objective_capture_cv`,
+`objective_capture_public`, `objective_ap_cv`, `objective_ap_public`, averaged
+over the 5 repetitions) are the CV and public columns of the leaderboard. The
+benchmark you run *is* the benchmark the server runs.
