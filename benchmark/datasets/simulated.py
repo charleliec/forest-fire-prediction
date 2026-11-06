@@ -15,6 +15,16 @@ WEATHER = ["t_mean", "t_min", "t_max", "rain", "snow", "wind", "rh", "q",
            "snow_depth", "rain_3d", "rain_7d", "rain_30d",
            "days_since_rain", "t_max_7d", "rh_7d", "swi_prev", "ndvi",
            "ndvi_anom", "ndvi_age"]
+# Static per-cell features (constant over days).
+ROADS = ["road_km", "motorway_km", "road_traffic", "road_dist"]
+POPULATION = ["pop_density", "inhabited_share", "sparse_share"]
+LANDCOVER = ["land_share", "lc_urban", "lc_crops", "lc_vine_orchard",
+             "lc_pasture", "lc_agri_natural", "lc_forest", "lc_grassland",
+             "lc_shrub", "lc_maquis", "lc_sparse", "lc_water"]
+FOREST = ["forest_broadleaf", "forest_conifer", "forest_mixed",
+          "forest_open", "heath", "pine_maritime", "pine_aleppo",
+          "pine_other", "fir_spruce", "oak_evergreen"]
+SHARES = LANDCOVER + FOREST
 
 
 class Dataset(BaseDataset):
@@ -45,14 +55,23 @@ class Dataset(BaseDataset):
         })
         df["lon"] = -5 + df["x"] / 80
         df["lat"] = 41 + df["y"] / 110
+        roads = rng.exponential(1, (self.n_cells, len(ROADS)))
+        for j, col in enumerate(ROADS):
+            df[col] = roads[df["cell_id"], j]
+        pop = rng.uniform(size=(self.n_cells, len(POPULATION)))
+        for j, col in enumerate(POPULATION):
+            df[col] = pop[df["cell_id"], j]
+        shares = rng.dirichlet(np.ones(len(SHARES)), self.n_cells)
+        for j, col in enumerate(SHARES):
+            df[col] = shares[df["cell_id"], j]
         for col in WEATHER:
             df[col] = rng.normal(size=n)
         logit = (-5 + 1.2 * df["t_max"] - 0.8 * df["rain_30d"]
                  + 0.6 * df["wind"] + propensity[df["cell_id"]])
         fire = pd.Series(rng.uniform(size=n) < 1 / (1 + np.exp(-logit)),
                          index=df.index, name="fire").astype("int8")
-        df = df.astype({c: "float32" for c in WEATHER + ["x", "y", "lon",
-                                                         "lat"]})
+        df = df.astype({c: "float32" for c in WEATHER + ROADS + POPULATION
+                        + SHARES + ["x", "y", "lon", "lat"]})
 
         year = df["date"].dt.year
         train, public = year < 2018, year == 2018

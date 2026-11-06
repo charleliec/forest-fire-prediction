@@ -6,3 +6,6 @@ pyproj
 shapely
 rasterio
 requests
+pyshp
+scipy
+py7zr

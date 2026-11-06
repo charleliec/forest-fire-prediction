@@ -8,7 +8,7 @@ with the data analysis behind each choice.
 
 Every summer, French fire services pre-position crews, trucks and aircraft
 where they expect fires to start. Your model helps decide where: **every day,
-rank the 1,104 cells of 25 km × 25 km covering metropolitan France by their
+rank the 977 cells of 25 km × 25 km covering metropolitan France by their
 risk of a wildfire starting that day.**
 
 One row is a (cell, day). The label `fire` is 1 when at least one wildfire
@@ -17,6 +17,33 @@ alert was recorded in the cell that day in the French forest-fire database
 territories excluded), about 0.6% of the rows. The features are:
 
 - the cell: `cell_id`, its centre `x`, `y` (Lambert-93, km) and `lon`, `lat`;
+- the roads, static, from the 2019 annual average daily traffic on the
+  national road network (DGITM): length of national roads (`road_km`) and
+  of motorways (`motorway_km`) in the cell, the traffic on them
+  (`road_traffic`, thousands of vehicle-km per day), and the distance from
+  the cell centre to the nearest national road (`road_dist`, km). Missing in
+  Corsica, whose roads are not in this source;
+- the population, static, from the INSEE 1 km population grid (Filosofi
+  2019): inhabitants per km² of the cell (`pop_density`; the cell area
+  includes the sea, so coastal cells read low), share of the cell's 1 km
+  squares that are inhabited (`inhabited_share`) and share with scattered
+  housing, 1 to 50 inhabitants (`sparse_share`, a proxy of the
+  wildland-urban interface);
+- the land cover, static, from Corine Land Cover 2018 (100 m): share of the
+  whole cell (sea included) that is land (`land_share`), artificial
+  (`lc_urban`), arable land (`lc_crops`), vineyards and orchards
+  (`lc_vine_orchard`), pastures (`lc_pasture`), farmland mixed with natural
+  vegetation (`lc_agri_natural`), forest (`lc_forest`), natural grassland
+  (`lc_grassland`), moors and woodland-shrub (`lc_shrub`), maquis and
+  garrigue (`lc_maquis`), rocks and sparse vegetation (`lc_sparse`), wetlands
+  and water (`lc_water`);
+- the forest type, static, from the IGN BD Forêt v2: share of the cell in
+  broadleaf, conifer and mixed forest (`forest_broadleaf`, `forest_conifer`,
+  `forest_mixed`), in open forest (`forest_open`, 10-40 % canopy) and in
+  heathland (`heath`), and by dominant species: maritime pine
+  (`pine_maritime`), Aleppo pine (`pine_aleppo`), other pines
+  (`pine_other`), fir, spruce, Douglas and larch (`fir_spruce`), holm and
+  cork oak (`oak_evergreen`);
 - the day: `date`;
 - the weather of the day, from the Météo-France SIM2 reanalysis averaged over
   the cell: temperatures (`t_min`, `t_mean`, `t_max`), `rain`, `snow`,
@@ -33,11 +60,11 @@ territories excluded), about 0.6% of the rows. The features are:
 ## The metric
 
 **Fires captured in the daily top 50** (higher is better): each day, the 50
-cells your model scores highest (about 4.5% of the territory) are the ones
+cells your model scores highest (about 5.1% of the territory) are the ones
 reinforced; the metric is the share of all fire (cell, day) rows of the test
 year that fall in their day's top 50. Only the ranking of the cells *within
 a day* matters. Ties are counted as broken at random: a constant prediction
-scores 50 / 1,104 ≈ 0.045.
+scores 50 / 977 ≈ 0.051.
 
 **Average precision** (higher is better) is shown as a second column: it
 ranks all the (cell, day) rows of the year together, so it also rewards

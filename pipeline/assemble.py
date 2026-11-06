@@ -4,6 +4,14 @@ Writes ``data/processed/firegrid.parquet``, one row per (cell_id, date) for
 every cell of the grid and every day of FIRST_YEAR..LAST_YEAR:
 
 - cell: ``cell_id``, ``x``, ``y`` (Lambert-93 centre, km), ``lon``, ``lat``;
+- roads (static, see build_roads.py): national network length, motorway
+  length and traffic in the cell, distance to the nearest national road;
+- population (static, see build_population.py): density, share of the
+  cell inhabited, share with scattered housing (INSEE 1 km grid);
+- land cover (static, see build_landcover.py): share of the cell in each
+  Corine Land Cover 2018 group (forest, maquis, crops, urban...);
+- forest type (static, see build_forest.py): share of the cell in each
+  BD Forêt v2 composition (broadleaf, conifer...) and dominant species;
 - calendar: ``date``;
 - weather of the day (SIM2, see build_weather.VARIABLES);
 - antecedent weather, from the days *before* the day only: rain sums over
@@ -28,6 +36,8 @@ import pandas as pd
 from common import FIRST_YEAR, INTERIM, LAST_YEAR, PROCESSED, TEST_YEARS
 
 COMPOSITE_DAYS = 16
+# Static per-cell tables, data/interim/<name>_cell.parquet.
+STATIC = ["roads", "population", "landcover", "forest"]
 
 
 def wide(df, col, cells, days):
@@ -97,6 +107,8 @@ def main(no_ndvi):
     grid = pd.read_parquet(INTERIM / "grid.parquet")
     weather = pd.read_parquet(INTERIM / "weather_cell_day.parquet")
     fires = pd.read_parquet(INTERIM / "fires_cell_day.parquet")
+    static = [pd.read_parquet(INTERIM / f"{name}_cell.parquet")
+              for name in STATIC]
     cells = grid["cell_id"].to_numpy()
 
     df = weather.merge(antecedent(weather, cells), on=["date", "cell_id"])
@@ -113,6 +125,8 @@ def main(no_ndvi):
     df = df.merge(grid[["cell_id", "x", "y", "lon", "lat"]], on="cell_id")
     df["x"] = (df["x"] / 1000).astype("float32")
     df["y"] = (df["y"] / 1000).astype("float32")
+    for table in static:
+        df = df.merge(table, on="cell_id", how="left")
     df = df.merge(fires[["cell_id", "date", "n_fires", "area_m2"]],
                   on=["cell_id", "date"], how="left")
     df["n_fires"] = df["n_fires"].fillna(0).astype("int16")
@@ -123,7 +137,8 @@ def main(no_ndvi):
             "n_fires"].sum():
         raise SystemExit("some fires were lost in the merge")
 
-    first = ["cell_id", "date", "x", "y", "lon", "lat"]
+    first = ["cell_id", "date", "x", "y", "lon", "lat",
+             *(c for t in static for c in t.columns.drop("cell_id"))]
     last = ["fire", "n_fires", "area_m2"]
     df = df[first + [c for c in df.columns if c not in first + last] + last]
     df = df.sort_values(["date", "cell_id"]).reset_index(drop=True)

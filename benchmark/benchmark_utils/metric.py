@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score
 
-# Cells that can be reinforced each day (out of 1104, about 4.5% of the
+# Cells that can be reinforced each day (out of 977, about 5.1% of the
 # territory).
 K = 50
 
