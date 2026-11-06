@@ -13,3 +13,5 @@ _codabench/
 # installed by `benchopt sync-skills`, kept in sync with benchopt
 .agents/skills/using-benchopt
 .claude/skills/using-benchopt
+_smoke/
+.venv/

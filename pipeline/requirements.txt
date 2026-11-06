@@ -1,0 +1,8 @@
+# Private data-building pipeline only (not needed by participants).
+pandas
+pyarrow
+numpy
+pyproj
+shapely
+rasterio
+requests
