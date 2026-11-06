@@ -1,6 +1,8 @@
-"""Floor baseline: predicts the most frequent class.
+"""Floor baseline: the same risk for every cell and every day.
 
-Any real model should beat it. Keep one such floor in every competition.
+Its daily top-K capture is K / n_cells, its average precision the fire
+rate. Any real model should beat it. Keep one such floor in every
+competition.
 """
 
 from sklearn.dummy import DummyClassifier
@@ -15,4 +17,4 @@ class Solver(CompetSolver):
     requirements = ["scikit-learn"]
 
     def get_model(self, meta):
-        return DummyClassifier()
+        return DummyClassifier(strategy="prior")

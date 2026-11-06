@@ -1,34 +1,53 @@
 """Objective: what a submission is evaluated on, and how.
 
-This template's task is a binary classification, scored by the metric of
-``benchmark_utils/metric.py`` (accuracy). The objective cross-validates the
-solver on the training data, one fold per repetition (run with
-``n_repetitions`` equal to the number of folds): the solver trains on the
-fold's training part, and ``evaluate_result`` scores it on the held-out part
-(``objective_accuracy_cv``) and on the public test set
-(``objective_accuracy_public``).
+Task: every day, rank the 25 km cells of metropolitan France by their risk
+of a wildfire starting that day, to pre-position firefighting resources.
+One row is a (cell, day); the label ``fire`` says whether at least one fire
+alert was recorded there that day (BDIFF). Scored by the metrics of
+``benchmark_utils/metric.py`` on the model's scores:
+``model.predict_proba(X)[:, 1]``, or ``model.predict(X)`` for a model
+without ``predict_proba`` (a regressor of the fire count, for instance).
 
-The private test set comes without labels: ``evaluate_result`` returns the
-fold model's predictions on it (``objective_private_pred``), and the scoring
+The objective cross-validates the solver on the training years, one fold per
+repetition (run with ``n_repetitions`` equal to ``N_SPLITS``), with whole
+years held out (``GroupKFold`` on the year): days of the same season are
+correlated, so a random split would leak. The solver trains on the fold's
+training years; ``evaluate_result`` scores it on the held-out years
+(``objective_<metric>_cv``) and on the public test year
+(``objective_<metric>_public``).
+
+The private test year comes without labels: ``evaluate_result`` returns the
+fold model's scores on it (``objective_private_pred``), and the scoring
 program scores them against the labels of the phase ``reference_data``. The
 scoring program averages every score over the folds.
-
-Adapt: ``set_data`` / ``get_objective`` to your data, and ``cv`` to your
-evaluation protocol (e.g. ``GroupKFold`` for a group split).
 """
 
+import numpy as np
 from benchopt import BaseObjective
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import GroupKFold
 
-from benchmark_utils.metric import NAME, score
+from benchmark_utils.metric import METRICS
+
+N_SPLITS = 5
+
+
+def predict_score(model, X):
+    if hasattr(model, "predict_proba"):
+        score = model.predict_proba(X)[:, 1]
+    else:
+        score = model.predict(X)
+    score = np.asarray(score, dtype="float64").ravel()
+    if score.shape != (len(X),):
+        raise ValueError(f"expected {len(X)} scores, got {score.shape}")
+    return score
 
 
 class Objective(BaseObjective):
 
-    name = "classification-accuracy"
+    name = "wildfire-daily-risk"
     url = "https://github.com/x-datascience-datacamp/template_codabench"
 
-    requirements = ["scikit-learn"]
+    requirements = ["scikit-learn", "pandas"]
 
     min_benchopt_version = "1.10.0"
 
@@ -39,8 +58,9 @@ class Objective(BaseObjective):
         self.X, self.y = X, y
         self.X_public, self.y_public = X_public, y_public
         self.X_private = X_private
-        self.cv = StratifiedKFold(n_splits=5, shuffle=True,
-                                  random_state=self.get_seed())
+        # Hold out whole years: no shuffling, deterministic folds.
+        self.cv = GroupKFold(n_splits=N_SPLITS)
+        self.cv_metadata = {"groups": X["date"].dt.year.to_numpy()}
 
     def split(self, cv_fold, X, y):
         train, val = cv_fold
@@ -52,13 +72,17 @@ class Objective(BaseObjective):
                                                                   self.y)
         return dict(X_train=X_train, y_train=y_train)
 
+    def _scores(self, model, X, y, suffix):
+        s = predict_score(model, X)
+        return {f"{name}_{suffix}": metric(y, s, X["date"])
+                for name, metric in METRICS.items()}
+
     def evaluate_result(self, model):
         return {
-            f"{NAME}_cv": score(self.y_val, model.predict(self.X_val)),
-            f"{NAME}_public": score(self.y_public,
-                                    model.predict(self.X_public)),
+            **self._scores(model, self.X_val, self.y_val, "cv"),
+            **self._scores(model, self.X_public, self.y_public, "public"),
             # Scored by the scoring program against the hidden labels.
-            "private_pred": model.predict(self.X_private),
+            "private_pred": predict_score(model, self.X_private),
         }
 
     def get_one_result(self):

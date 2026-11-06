@@ -10,7 +10,7 @@ dataset:
   - Real
 solver:
   - Dummy
-  - RandomForest
+  - HGB
   # - my_submission/submission.py
 seed: 42
 # One cross-validation fold per repetition: match the objective's n_splits.

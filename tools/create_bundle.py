@@ -64,7 +64,7 @@ def build_bundle():
         _add_dir(bundle, ROOT_DIR / "scoring_program", "scoring_program")
         _add_dir(bundle, ROOT_DIR / "benchmark/benchmark_utils",
                  "scoring_program/benchmark_utils")
-        _add_file(bundle, ROOT_DIR / "benchmark/solvers/random-forest.py",
+        _add_file(bundle, ROOT_DIR / "benchmark/solvers/hgb.py",
                   "solution/submission.py")
 
         _add_file(bundle, ROOT_DIR / "phases/main/input_data/config.yaml",

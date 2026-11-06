@@ -31,7 +31,7 @@ if __name__ == "__main__":
                         help="Prepared data dir (benchopt data home)")
     parser.add_argument("--submission",
                         help="Folder holding submission.py (default: the "
-                        "sample benchmark/solvers/random-forest.py)")
+                        "sample benchmark/solvers/hgb.py)")
     args = parser.parse_args()
     data = Path(args.data).resolve()
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     # Without --submission, mount the sample solver as submission.py.
     submission = (
         f"{args.submission}:/app/ingested_program" if args.submission
-        else f"{REPO / 'benchmark/solvers/random-forest.py'}:"
+        else f"{REPO / 'benchmark/solvers/hgb.py'}:"
         "/app/ingested_program/submission.py"
     )
     out = REPO / "_codabench/ingestion"
