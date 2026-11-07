@@ -15,6 +15,12 @@ Credentials (NASA Earthdata Login), never stored in the repository:
     python pipeline/build_ndvi.py status
     python pipeline/build_ndvi.py fetch      # download + aggregate, resumable
 
+To keep the 250 m rasters (NDVI, VI quality, and NIR / MIR reflectance for
+the NBR) on disk under ``data/raw/ndvi/rasters/<year>/``:
+
+    python pipeline/build_ndvi.py submit-nbr # NIR + MIR tasks -> tasks_nbr.json
+    python pipeline/build_ndvi.py download   # resumable, keeps every raster
+
 Writes ``data/interim/ndvi_cell.parquet``: cell_id, composite start date,
 NDVI mean / std and number of valid 250 m pixels.
 """
@@ -40,6 +46,11 @@ PRODUCT = "MOD13Q1.061"
 LAYER = "_250m_16_days_NDVI"
 TASKS = NDVI_DIR / "tasks.json"
 PARTS = NDVI_DIR / "parts"
+# NIR and MIR (MODIS band 7, 2.1 um) reflectance: NBR = (NIR-MIR)/(NIR+MIR).
+NBR_LAYERS = ["_250m_16_days_NIR_reflectance",
+              "_250m_16_days_MIR_reflectance"]
+TASKS_NBR = NDVI_DIR / "tasks_nbr.json"
+RASTERS = NDVI_DIR / "rasters"
 
 
 def credentials():
@@ -108,12 +119,97 @@ def submit():
         TASKS.write_text(json.dumps(tasks, indent=1))
 
 
+def submit_nbr():
+    """One NIR + MIR task per year, on the area and dates of the NDVI task
+    of that year, so that the rasters of both line up pixel for pixel."""
+    headers = login()
+    tasks = json.loads(TASKS.read_text())
+    nbr = json.loads(TASKS_NBR.read_text()) if TASKS_NBR.exists() else {}
+    for year, task_id in tasks.items():
+        if year in nbr:
+            continue
+        params = requests.get(f"{API}/task/{task_id}", headers=headers,
+                              timeout=60).json()["params"]
+        params["layers"] = [{"product": PRODUCT, "layer": layer}
+                            for layer in NBR_LAYERS]
+        task = {"task_type": "area", "task_name": f"firegrid_nbr_{year}",
+                "params": params}
+        r = requests.post(f"{API}/task", json=task, headers=headers,
+                          timeout=300)
+        if not r.ok:
+            raise SystemExit(f"{year}: {r.status_code} {r.text}")
+        nbr[year] = r.json()["task_id"]
+        print(year, nbr[year])
+        TASKS_NBR.write_text(json.dumps(nbr, indent=1))
+
+
 def status():
     headers = login()
-    for year, task_id in json.loads(TASKS.read_text()).items():
-        info = requests.get(f"{API}/task/{task_id}", headers=headers,
-                            timeout=60).json()
-        print(year, task_id, info["status"])
+    for path in (TASKS, TASKS_NBR):
+        if not path.exists():
+            continue
+        for year, task_id in json.loads(path.read_text()).items():
+            info = requests.get(f"{API}/task/{task_id}", headers=headers,
+                                timeout=60).json()
+            print(path.stem, year, task_id, info["status"])
+
+
+def wait_done(year, task_id):
+    """Block until the task is done; returns fresh auth headers."""
+    headers = login()
+    while (st := requests.get(f"{API}/task/{task_id}", headers=headers,
+                              timeout=60).json()["status"]) != "done":
+        if st == "error":
+            raise SystemExit(f"{year}: task {task_id} failed")
+        print(f"{year}: {st}, waiting...", flush=True)
+        time.sleep(600)
+        headers = login()
+    return headers
+
+
+def download():
+    """Download every raster of the wanted layers and keep it on disk.
+
+    A file is written to ``*.part`` and renamed once complete, so an
+    interrupted run never leaves a truncated raster behind; existing
+    rasters of the expected size are skipped.
+    """
+    jobs = [(TASKS, [LAYER, "_250m_16_days_VI_Quality"])]
+    if TASKS_NBR.exists():
+        jobs.append((TASKS_NBR, NBR_LAYERS))
+    for path, layers in jobs:
+        for year, task_id in json.loads(path.read_text()).items():
+            headers = wait_done(year, task_id)
+            files = requests.get(f"{API}/bundle/{task_id}", headers=headers,
+                                 timeout=60).json()["files"]
+            tifs = [f for f in files if f["file_name"].endswith(".tif")
+                    and any(f"{layer}_doy" in f["file_name"]
+                            for layer in layers)]
+            out = RASTERS / year
+            out.mkdir(parents=True, exist_ok=True)
+            todo = [f for f in tifs
+                    if not ((out / f["file_name"].split("/")[-1]).exists()
+                            and (out / f["file_name"].split("/")[-1])
+                            .stat().st_size == f["file_size"])]
+            print(f"{path.stem} {year}: {len(tifs)} rasters, "
+                  f"{len(todo)} to download "
+                  f"({sum(f['file_size'] for f in todo) / 1e9:.2f} GB)",
+                  flush=True)
+            for f in todo:
+                dest = out / f["file_name"].split("/")[-1]
+                part = dest.with_name(dest.name + ".part")
+                with requests.get(f"{API}/bundle/{task_id}/{f['file_id']}",
+                                  headers=headers, stream=True,
+                                  timeout=600) as r:
+                    r.raise_for_status()
+                    with open(part, "wb") as fh:
+                        for chunk in r.iter_content(1 << 20):
+                            fh.write(chunk)
+                if part.stat().st_size != f["file_size"]:
+                    raise IOError(f"{dest.name}: incomplete download")
+                part.replace(dest)
+    total = sum(p.stat().st_size for p in RASTERS.rglob("*.tif"))
+    print(f"done: {total / 1e9:.1f} GB in {RASTERS}")
 
 
 class CellLookup:
@@ -236,8 +332,7 @@ def combine():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("action",
-                        choices=["submit", "status", "fetch", "combine"])
-    action = parser.parse_args().action
-    {"submit": submit, "status": status, "fetch": fetch,
-     "combine": combine}[action]()
+    actions = {"submit": submit, "submit-nbr": submit_nbr, "status": status,
+               "fetch": fetch, "combine": combine, "download": download}
+    parser.add_argument("action", choices=list(actions))
+    actions[parser.parse_args().action]()
