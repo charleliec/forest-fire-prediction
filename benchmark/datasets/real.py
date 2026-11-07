@@ -18,6 +18,12 @@ each row, needed by the metric) go to ``get_data_path("reference")``, which
 the bundle ships in the phase ``reference_data``, read only by the scoring
 program.
 
+Every split carries the fire outcomes ``n_fires`` and ``area_m2`` next to
+the label, so that the objective can switch to them (count regression,
+area-weighted metric...): in ``train.parquet`` / ``public.parquet``, and in
+the hidden ``reference/private.csv`` for the private year. ``get_data``
+returns them apart (``outcomes``, ``outcomes_public``), never in ``X``.
+
 ``prepare`` reads the private pipeline output ``firegrid.parquet``
 (``$FIREGRID_SOURCE``, default ``data/processed/firegrid.parquet`` at the
 repository root). It is not distributed: participants get the prepared
@@ -33,7 +39,8 @@ from benchopt.config import get_data_path
 
 PUBLIC_YEAR, PRIVATE_YEAR = 2018, 2025
 TARGET = "fire"
-# Outcomes of the fire, not available before it: never features.
+# Outcomes of the fire, not available before it: kept next to the label in
+# every split, never features.
 OUTCOMES = ["n_fires", "area_m2"]
 
 
@@ -54,7 +61,7 @@ class Dataset(BaseDataset):
         if not src.exists():
             raise SystemExit(f"[Real] no source table at {src}: build it "
                              "with pipeline/ or set FIREGRID_SOURCE.")
-        df = pd.read_parquet(src).drop(columns=OUTCOMES)
+        df = pd.read_parquet(src)
         year = df["date"].dt.year
         train = df[~year.isin([PUBLIC_YEAR, PRIVATE_YEAR])]
         public = df[year == PUBLIC_YEAR]
@@ -68,9 +75,10 @@ class Dataset(BaseDataset):
         ref.mkdir(parents=True, exist_ok=True)
         train.to_parquet(root / "train.parquet", index=False)
         public.to_parquet(root / "public.parquet", index=False)
-        private.drop(columns=TARGET).to_parquet(root / "private.parquet",
-                                                index=False)
-        (private[[TARGET, "date"]].rename(columns={TARGET: "target"})
+        private.drop(columns=[TARGET, *OUTCOMES]).to_parquet(
+            root / "private.parquet", index=False)
+        (private[[TARGET, *OUTCOMES, "date"]]
+         .rename(columns={TARGET: "target"})
          .to_csv(ref / "private.csv", index=False))
         print(f"[Real] train {len(train)}, public {len(public)}, "
               f"private {len(private)} rows")
@@ -85,8 +93,10 @@ class Dataset(BaseDataset):
 
         train = pd.read_parquet(root / "train.parquet")
         public = pd.read_parquet(root / "public.parquet")
+        drop = [TARGET, *OUTCOMES]
         return dict(
-            X=train.drop(columns=TARGET), y=train[TARGET],
-            X_public=public.drop(columns=TARGET), y_public=public[TARGET],
+            X=train.drop(columns=drop), y=train[TARGET],
+            X_public=public.drop(columns=drop), y_public=public[TARGET],
             X_private=pd.read_parquet(root / "private.parquet"),
+            outcomes=train[OUTCOMES], outcomes_public=public[OUTCOMES],
         )

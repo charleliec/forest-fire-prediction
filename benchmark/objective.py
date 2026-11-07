@@ -54,9 +54,14 @@ class Objective(BaseObjective):
     # Each solver trains once per fold (no convergence curve).
     sampling_strategy = "run_once"
 
-    def set_data(self, X, y, X_public, y_public, X_private):
-        self.X, self.y = X, y
+    def set_data(self, X, y, X_public, y_public, X_private, outcomes,
+                 outcomes_public):
+        # ``outcomes*``: fire count and burned area of each row (n_fires,
+        # area_m2). Unused by the current metrics; split with y so that a
+        # new objective (count regression, area weighting) can use them.
+        self.X, self.y, self.outcomes = X, y, outcomes
         self.X_public, self.y_public = X_public, y_public
+        self.outcomes_public = outcomes_public
         self.X_private = X_private
         # Hold out whole years: no shuffling, deterministic folds.
         self.cv = GroupKFold(n_splits=N_SPLITS)
@@ -68,9 +73,14 @@ class Objective(BaseObjective):
 
     def get_objective(self):
         # The fold follows the repetition index.
-        X_train, self.X_val, y_train, self.y_val = self.get_split(self.X,
-                                                                  self.y)
-        return dict(X_train=X_train, y_train=y_train)
+        # y and the outcomes are split together, as one label frame.
+        target = self.y.name
+        labels = self.outcomes.assign(**{target: self.y})
+        X_train, self.X_val, labels_train, labels_val = self.get_split(
+            self.X, labels)
+        self.y_val = labels_val.pop(target)
+        self.outcomes_val = labels_val
+        return dict(X_train=X_train, y_train=labels_train[target])
 
     def _scores(self, model, X, y, suffix):
         s = predict_score(model, X)

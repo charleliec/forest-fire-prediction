@@ -22,8 +22,12 @@ LANDCOVER = ["land_share", "lc_urban", "lc_crops", "lc_vine_orchard",
              "lc_pasture", "lc_agri_natural", "lc_forest", "lc_grassland",
              "lc_shrub", "lc_maquis", "lc_sparse", "lc_water"]
 FOREST = ["forest_broadleaf", "forest_conifer", "forest_mixed",
-          "forest_open", "heath", "pine_maritime", "pine_aleppo",
-          "pine_other", "fir_spruce", "oak_evergreen"]
+          "forest_open", "heath", "sp_pine_maritime", "sp_pine_aleppo",
+          "sp_pine_scots", "sp_pine_black", "sp_pine_mountain",
+          "sp_pine_other", "sp_pine_mixed", "sp_fir_spruce", "sp_douglas",
+          "sp_larch", "sp_conifer_mixed", "sp_oak_evergreen",
+          "sp_oak_deciduous", "sp_beech", "sp_chestnut", "sp_robinia",
+          "sp_poplar", "sp_broadleaf_mixed", "sp_mixed"]
 SHARES = LANDCOVER + FOREST
 
 
@@ -70,6 +74,13 @@ class Dataset(BaseDataset):
                  + 0.6 * df["wind"] + propensity[df["cell_id"]])
         fire = pd.Series(rng.uniform(size=n) < 1 / (1 + np.exp(-logit)),
                          index=df.index, name="fire").astype("int8")
+        # Fire outcomes, as in the real data: count >= 1 and burned area
+        # (m2, heavy-tailed) on fire rows, 0 elsewhere.
+        n_fires = fire * (1 + rng.poisson(0.3, n))
+        outcomes = pd.DataFrame({
+            "n_fires": n_fires.astype("int16"),
+            "area_m2": (n_fires * rng.lognormal(7, 2, n)).astype("float32"),
+        }, index=df.index)
         df = df.astype({c: "float32" for c in WEATHER + ROADS + POPULATION
                         + SHARES + ["x", "y", "lon", "lat"]})
 
@@ -77,4 +88,6 @@ class Dataset(BaseDataset):
         train, public = year < 2018, year == 2018
         private = year == 2025
         return dict(X=df[train], y=fire[train], X_public=df[public],
-                    y_public=fire[public], X_private=df[private])
+                    y_public=fire[public], X_private=df[private],
+                    outcomes=outcomes[train],
+                    outcomes_public=outcomes[public])

@@ -19,8 +19,22 @@ About 0.6% of rows have a fire.
 |---|---|
 | `fire` | 1 if at least one wildfire alert (BDIFF, ≥ 10 m²) started in the cell that day, else 0 |
 
-`n_fires` and `area_m2` (fire count, burned area) exist in the source table
-but are **dropped**. They are outcomes of the fire, never features.
+### Fire outcomes (every split)
+
+| Column | Description |
+|---|---|
+| `n_fires` | Number of wildfire alerts that started in the cell that day (`fire` = `n_fires` > 0) |
+| `area_m2` | Total burned area of those fires (m²), 0 when no fire |
+
+Kept with the label so the objective can move to them (fire count, area
+weighting...). They are outcomes of the fire, not known beforehand: **never
+features**.
+
+- `train.parquet`, `public.parquet`: columns next to `fire`.
+- private test: hidden like `fire`, in `reference/private.csv` (`target`,
+  `n_fires`, `area_m2`, `date`), not in `private.parquet`.
+- `get_data` (Real and Simulated) returns them apart from `X`, as
+  `outcomes` / `outcomes_public`; the objective splits them per fold with `y`.
 
 ## Features
 
@@ -91,8 +105,8 @@ but are **dropped**. They are outcomes of the fire, never features.
 | `ndvi_anom` | `ndvi` minus the cell's usual NDVI for that period (training years) |
 | `ndvi_age` | Age of that composite (days) |
 | `land_share` | Share of the cell that is land (< 1 on coasts / borders) |
-| `lc_*` | Corine Land Cover 2018 shares of the cell: `urban`, `crops`, `vine_orchard`, `pasture`, `agri_natural`, `forest`, `grassland`, `shrub`, `maquis`, `sparse`, `water` |
+| `lc_*` | Corine Land Cover 2018 shares of the cell: `urban`, `crops`, `vine_orchard`, `pasture`, `agri_natural`, `forest`, `grassland`, `shrub`, `maquis`, `sparse` (beaches, rocks, sparse vegetation, burnt areas, glaciers), `water` |
 | `forest_broadleaf`, `forest_conifer`, `forest_mixed`, `forest_open`, `heath` | BD Forêt v2 shares of the cell by forest type |
-| `pine_maritime`, `pine_aleppo`, `pine_other`, `fir_spruce`, `oak_evergreen` | BD Forêt v2 shares of the cell by dominant species |
+| `sp_*` | BD Forêt v2 shares of the cell by dominant species, one column per species value of the source: pines `sp_pine_maritime`, `sp_pine_aleppo`, `sp_pine_scots`, `sp_pine_black` (laricio, black), `sp_pine_mountain` (mountain, stone), `sp_pine_other`, `sp_pine_mixed`; other conifers `sp_fir_spruce`, `sp_douglas`, `sp_larch`, `sp_conifer_mixed`; broadleaves `sp_oak_evergreen` (holm, cork), `sp_oak_deciduous`, `sp_beech`, `sp_chestnut`, `sp_robinia`, `sp_poplar`, `sp_broadleaf_mixed`; `sp_mixed` (broadleaves and conifers). Forest with no species recorded counts in none. The most fire-prone are the Mediterranean and Atlantic pines (`sp_pine_maritime`, `sp_pine_aleppo`, `sp_pine_black`) and the evergreen oaks (`sp_oak_evergreen`) |
 
 Sources, licenses and build details: the docstrings of `pipeline/build_*.py`.
