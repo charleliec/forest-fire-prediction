@@ -18,9 +18,16 @@ Each département is rasterised at 50 m on a Lambert-93 grid aligned on the
   open forest of that composition (poplar plantations count as broadleaf);
 - ``forest_open``: open forest (canopy cover 10-40 %), any composition;
 - ``heath``: heathland (lande);
-- by dominant species: ``pine_maritime`` (maritime pine), ``pine_aleppo``
-  (Aleppo pine), ``pine_other`` (other and mixed pines), ``fir_spruce``
-  (fir, spruce, Douglas fir, larch), ``oak_evergreen`` (holm and cork oak).
+- by dominant species (``ESSENCE``), one ``sp_*`` column per value:
+  pines (``sp_pine_maritime``, ``sp_pine_aleppo``, ``sp_pine_scots``,
+  ``sp_pine_black`` laricio and black pine, ``sp_pine_mountain`` mountain
+  and stone pine, ``sp_pine_other``, ``sp_pine_mixed``), other conifers
+  (``sp_fir_spruce``, ``sp_douglas``, ``sp_larch``, ``sp_conifer_mixed``),
+  broadleaves (``sp_oak_evergreen`` holm and cork oak, ``sp_oak_deciduous``,
+  ``sp_beech``, ``sp_chestnut``, ``sp_robinia``, ``sp_poplar``,
+  ``sp_broadleaf_mixed``) and ``sp_mixed`` (broadleaves and conifers).
+  Polygons with no species (``NC``: open forest, heath...; ``NR``: not
+  recorded) count in none.
 
     python pipeline/build_forest.py
 
@@ -55,21 +62,28 @@ CACHE = INTERIM / "bdforet"
 COMPOSITION = {"feuillus": "forest_broadleaf", "coniferes": "forest_conifer",
                "mixte": "forest_mixed"}
 SPECIES = {
-    "pin maritime": "pine_maritime",
-    "pin d'alep": "pine_aleppo",
-    "pin sylvestre": "pine_other",
-    "pin laricio, pin noir": "pine_other",
-    "pin a crochets, pin cembro": "pine_other",
-    "pin autre": "pine_other",
-    "pins melanges": "pine_other",
-    "sapin, epicea": "fir_spruce",
-    "douglas": "fir_spruce",
-    "meleze": "fir_spruce",
-    "chenes sempervirents": "oak_evergreen",
+    "pin maritime": "sp_pine_maritime",
+    "pin d'alep": "sp_pine_aleppo",
+    "pin sylvestre": "sp_pine_scots",
+    "pin laricio, pin noir": "sp_pine_black",
+    "pin a crochets, pin cembro": "sp_pine_mountain",
+    "pin autre": "sp_pine_other",
+    "pins melanges": "sp_pine_mixed",
+    "sapin, epicea": "sp_fir_spruce",
+    "douglas": "sp_douglas",
+    "meleze": "sp_larch",
+    "coniferes": "sp_conifer_mixed",
+    "chenes sempervirents": "sp_oak_evergreen",
+    "chenes decidus": "sp_oak_deciduous",
+    "hetre": "sp_beech",
+    "chataignier": "sp_chestnut",
+    "robinier": "sp_robinia",
+    "peuplier": "sp_poplar",
+    "feuillus": "sp_broadleaf_mixed",
+    "mixte": "sp_mixed",
 }
 FEATURES = ["forest_broadleaf", "forest_conifer", "forest_mixed",
-            "forest_open", "heath", "pine_maritime", "pine_aleppo",
-            "pine_other", "fir_spruce", "oak_evergreen"]
+            "forest_open", "heath", *SPECIES.values()]
 
 
 def norm(s):
@@ -138,8 +152,9 @@ def features(c, grid):
     cols["forest_broadleaf"] |= tfv.eq("peupleraie")
     cols["forest_open"] = tfv.str.startswith("foret ouverte")
     cols["heath"] = tfv.eq("lande")
-    for name in set(SPECIES.values()):
-        cols[name] = essence.map(SPECIES).eq(name)
+    species = essence.map(SPECIES)
+    for name in SPECIES.values():
+        cols[name] = species.eq(name)
     out = pd.DataFrame({name: c["share"].where(m, 0.)
                         for name, m in cols.items()})
     out["cell_id"] = c["cell_id"]
@@ -177,9 +192,8 @@ def main():
             .sum() * RES ** 2 / 1e6).round(0)
     print("area per type and species (km2):")
     print(seen.to_string())
-    unknown = set(seen.index.get_level_values(1)) - set(SPECIES) - {
-        "nc", "nr", "feuillus", "coniferes", "mixte", "chenes decidus",
-        "hetre", "chataignier", "robinier", "peuplier"}
+    unknown = (set(seen.index.get_level_values(1)) - set(SPECIES)
+               - {"nc", "nr"})
     if unknown:
         print(f"species left out of the species features: {unknown}")
 

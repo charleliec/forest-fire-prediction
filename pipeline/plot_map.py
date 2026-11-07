@@ -263,11 +263,12 @@ FOREST = [
     ("forest_mixed", "Mixed forest", "Greens"),
     ("forest_open", "Open forest (10-40 % canopy)", "Greens"),
     ("heath", "Heathland", "Greens"),
-    ("pine_maritime", "Maritime pine", "Purples"),
-    ("pine_aleppo", "Aleppo pine", "Purples"),
-    ("pine_other", "Other pines", "Purples"),
-    ("fir_spruce", "Fir, spruce, Douglas, larch", "Purples"),
-    ("oak_evergreen", "Holm and cork oak", "Purples"),
+    # Fire-prone species only; the other sp_* columns are not mapped.
+    ("sp_pine_maritime", "Maritime pine", "Purples"),
+    ("sp_pine_aleppo", "Aleppo pine", "Purples"),
+    ("sp_pine_black", "Laricio and black pine", "Purples"),
+    ("sp_pine_scots", "Scots pine", "Purples"),
+    ("sp_oak_evergreen", "Holm and cork oak", "Purples"),
 ]
 
 
@@ -308,8 +309,8 @@ def landcover_maps(grid):
 def forest_maps(grid):
     share_maps(grid, pd.read_parquet(INTERIM / "forest_cell.parquet"),
                FOREST, f"Forest type per {CELL_SIZE // 1000} km cell (IGN "
-               "BD Forêt v2): green composition and canopy, purple dominant "
-               "species", PROCESSED / "forest_maps.png")
+               "BD Forêt v2): green composition and canopy, purple fire-prone "
+               "dominant species", PROCESSED / "forest_maps.png")
 
 
 def main():

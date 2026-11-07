@@ -40,10 +40,11 @@ territories excluded), about 0.6% of the rows. The features are:
 - the forest type, static, from the IGN BD Forêt v2: share of the cell in
   broadleaf, conifer and mixed forest (`forest_broadleaf`, `forest_conifer`,
   `forest_mixed`), in open forest (`forest_open`, 10-40 % canopy) and in
-  heathland (`heath`), and by dominant species: maritime pine
-  (`pine_maritime`), Aleppo pine (`pine_aleppo`), other pines
-  (`pine_other`), fir, spruce, Douglas and larch (`fir_spruce`), holm and
-  cork oak (`oak_evergreen`);
+  heathland (`heath`), and by dominant species, one `sp_*` column per
+  species of the source (19, listed in `DATA.md`), the most fire-prone
+  being maritime pine (`sp_pine_maritime`), Aleppo pine (`sp_pine_aleppo`),
+  laricio and black pine (`sp_pine_black`) and holm and cork oak
+  (`sp_oak_evergreen`);
 - the day: `date`;
 - the weather of the day, from the Météo-France SIM2 reanalysis averaged over
   the cell: temperatures (`t_min`, `t_mean`, `t_max`), `rain`, `snow`,
