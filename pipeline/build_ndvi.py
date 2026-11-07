@@ -121,6 +121,7 @@ class CellLookup:
 
     def __init__(self):
         grid = pd.read_parquet(INTERIM / "grid.parquet")
+        self.cell_ids = grid["cell_id"].to_numpy()
         self.ix0, self.iy0 = grid["ix"].min(), grid["iy"].min()
         self.table = np.full((grid["ix"].max() - self.ix0 + 1,
                               grid["iy"].max() - self.iy0 + 1), -1)
@@ -168,10 +169,11 @@ def aggregate(path, lookup):
         std = np.sqrt(np.maximum(s2 / count - mean ** 2, 0))
     doy = re.search(r"doy(\d{7})", path.name).group(1)
     date = datetime(int(doy[:4]), 1, 1) + timedelta(days=int(doy[4:]) - 1)
-    return pd.DataFrame({"cell_id": np.arange(n_cells), "date": date,
-                         "ndvi": mean.astype("float32"),
-                         "ndvi_std": std.astype("float32"),
-                         "ndvi_count": count.astype("int32")})
+    ids = lookup.cell_ids
+    return pd.DataFrame({"cell_id": ids, "date": date,
+                         "ndvi": mean[ids].astype("float32"),
+                         "ndvi_std": std[ids].astype("float32"),
+                         "ndvi_count": count[ids].astype("int32")})
 
 
 def fetch():
@@ -219,6 +221,9 @@ def fetch():
 def combine():
     ndvi = pd.concat([pd.read_parquet(p) for p in sorted(PARTS.glob("*"))],
                      ignore_index=True)
+    # Parts may hold ids that are not in the grid (holes in the numbering).
+    grid = pd.read_parquet(INTERIM / "grid.parquet")
+    ndvi = ndvi[ndvi["cell_id"].isin(grid["cell_id"])]
     ndvi = ndvi.sort_values(["cell_id", "date"]).drop_duplicates(
         ["cell_id", "date"])
     ndvi.to_parquet(INTERIM / "ndvi_cell.parquet", index=False)
