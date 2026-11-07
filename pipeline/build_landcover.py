@@ -86,15 +86,33 @@ def get(url, tries=8, **kwargs):
     return r
 
 
-def download(url, path):
-    """Download ``url`` to ``path`` (streamed) unless it exists."""
+def download(url, path, tries=8):
+    """Download ``url`` to ``path`` (streamed) unless it exists.
+
+    A dropped connection resumes from the ``.part`` file (HTTP Range).
+    """
     if path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".part")
-    with get(url, stream=True) as r, open(tmp, "wb") as f:
-        for chunk in r.iter_content(1 << 20):
-            f.write(chunk)
+    for k in range(tries):
+        done = tmp.stat().st_size if tmp.exists() else 0
+        headers = {"Range": f"bytes={done}-"} if done else {}
+        try:
+            with get(url, stream=True, headers=headers) as r:
+                if r.status_code == 416:  # nothing left to fetch
+                    break
+                mode = "ab" if r.status_code == 206 else "wb"
+                with open(tmp, mode) as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk)
+            break
+        except (requests.ConnectionError,
+                requests.exceptions.ChunkedEncodingError) as e:
+            if k == tries - 1:
+                raise
+            print(f"  {path.name}: {type(e).__name__}, resuming", flush=True)
+            time.sleep(2 ** k)
     tmp.replace(path)
 
 

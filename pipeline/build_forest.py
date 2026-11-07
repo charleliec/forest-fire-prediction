@@ -155,13 +155,22 @@ def main():
     CACHE.mkdir(parents=True, exist_ok=True)
     todo = [n for n in names if not (CACHE / f"{n}.parquet").exists()]
     # The Géoplateforme throttles each connection: download in parallel.
+    failed = []
     with ThreadPoolExecutor(8) as pool:
-        jobs = [pool.submit(fetch, n) for n in todo]
+        jobs = {pool.submit(fetch, n): n for n in todo}
         for i, job in enumerate(as_completed(jobs), 1):
+            if job.exception() is not None:
+                failed.append(jobs[job])
+                print(f"  {i}/{len(todo)} {jobs[job]} FAILED: "
+                      f"{job.exception()}", flush=True)
+                continue
             archive = job.result()
             counts(archive).to_parquet(CACHE / f"{archive.stem}.parquet",
                                        index=False)
             print(f"  {i}/{len(todo)} {archive.stem}", flush=True)
+    if failed:
+        raise SystemExit(f"{len(failed)} downloads failed, run again to "
+                         f"resume: {failed}")
 
     c = pd.concat([pd.read_parquet(CACHE / f"{n}.parquet") for n in names])
     seen = (c.groupby([c["tfv"].map(norm), c["essence"].map(norm)])["n"]
