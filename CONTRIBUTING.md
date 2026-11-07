@@ -36,38 +36,111 @@ This writes `benchmark/data/real/{train,public,private}.parquet`. Re-run it
 
 ## Writing a model
 
-Copy `benchmark/solvers/hgb.py` to `benchmark/solvers/<your_model>.py` and
-change `name` and `get_model`:
+### 1. Create the file
+
+Create `benchmark/solvers/<your_model>.py` and paste the template below.
+Give it a unique `name`: `-s` selects it by this name, and the results
+show it. A model is one file, holding the `Solver` class and every helper
+it needs.
+
+### 2. The template
+
+The model is a plain Python class with two methods, `fit` and
+`predict_proba`. Both build the features with the same `features` method,
+then call the classifier: the chain is written out, step by step.
 
 ```python
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+
 from benchmark_utils.base_solver import CompetSolver
+
+
+class Model:
+
+    def __init__(self):
+        self.clf = HistGradientBoostingClassifier(random_state=0)
+
+    def features(self, X):
+        """Raw X -> table the classifier sees. Same code at train and test."""
+        X = X.copy()
+
+        # Calendar, from the row only. Then drop `date`: the
+        # classifier can't use a datetime column.
+        doy = X["date"].dt.dayofyear.to_numpy()
+        X["doy_sin"] = np.sin(2 * np.pi * doy / 365.25)
+        X["doy_cos"] = np.cos(2 * np.pi * doy / 365.25)
+        X = X.drop(columns="date")
+
+        # Per-cell fire rate, learned in `fit` (training labels only).
+        X["cell_rate"] = X["cell_id"].map(self.cell_rate).fillna(self.base_rate)
+        return X
+
+    def fit(self, X, y):
+        # 1. Learn what the features need from the training data.
+        self.cell_rate = y.groupby(X["cell_id"]).mean()
+        self.base_rate = y.mean()
+        # 2. Build the features, then train the classifier on them.
+        self.clf.fit(self.features(X), y)
+
+    def predict_proba(self, X):
+        # Same features, then the trained classifier.
+        return self.clf.predict_proba(self.features(X))
+
 
 class Solver(CompetSolver):
     name = "MyModel"
     requirements = ["scikit-learn"]
 
     def get_model(self, meta):
-        return make_pipeline(...)   # untrained model
-
-    # optional, default is model.fit(X_train, y_train)
-    def fit(self, model, X_train, y_train):
-        model.fit(X_train, y_train)
+        return Model()   # untrained, one per CV fold
 ```
 
-Rules of the contract:
+What happens on the platform, for each of the 5 folds:
 
-- `X` is a pandas DataFrame with the raw columns of [DATA.md](DATA.md),
-  including `date` (datetime). **All feature engineering must happen inside
-  the model** (e.g. a `FunctionTransformer` in a pipeline). At test time it
-  receives raw `X` only.
-- The trained model must have `predict_proba(X)[:, 1]` or `predict(X)`.
-  Any score works. Only the ranking of cells within a day matters for
-  `capture`.
-- Everything must be in **one file**: the platform cannot import sibling
-  `.py` files.
-- Only packages from `requirements.txt` are available (benchopt, pandas,
-  scikit-learn, plus torch in the image). Want LightGBM / XGBoost? Ask first,
-  it means changing the Docker image.
+1. `Solver.get_model(meta)` creates a fresh, untrained `Model()`.
+2. `Model.fit(X_train, y_train)` learns the per-cell rates, builds the
+   features and trains the classifier.
+3. `Model.predict_proba(X)` is called on the held-out years, the public
+   year and the private year. Column 1 is the risk score.
+
+Notes:
+
+- Anything learned from `y` (per-cell rates, target encoding) must be
+  computed in `fit` and stored on `self`, as `cell_rate` is. `fit` only sees
+  the training fold, so it does not leak.
+- Sample weights, negative subsampling and torch training loops go in
+  `Model.fit` too. For example, `self.clf.fit(F, y, sample_weight=w)`.
+- `meta["submission_dir"]` is the folder of the file, for loading extra
+  non-code files (weights, configs) in `get_model`.
+- When you run locally, benchopt prints a joblib `Unable to cache to disk`
+  warning for classes defined in the file. It does no harm: ignore it.
+- `hgb.py` builds the same kind of model with sklearn's `make_pipeline`.
+  Both styles work, use whichever you find clearer.
+
+### 3. The contract
+
+- **Input.** `X` is the raw DataFrame of [DATA.md](DATA.md), `date`
+  included (datetime). At test time the model gets raw `X` only, so **all
+  feature engineering lives inside the model**, never in a preprocessing
+  step outside it.
+- **Output.** The trained model exposes `predict_proba(X)[:, 1]` or
+  `predict(X)`, one finite score per row (a NaN score fails the run). Any
+  monotone score works: `capture` only compares cells of the same day.
+- **One file.** The platform loads it by path: helpers must be defined in
+  it, sibling `.py` files can't be imported.
+- **Columns.** Only use columns that exist in your `train.parquet`. The
+  columns under "Being added" in [DATA.md](DATA.md) are in the `Simulated`
+  data but not yet in every real file.
+- **Packages.** Only `requirements.txt` (benchopt, pandas, scikit-learn,
+  plus torch in the image). Want LightGBM / XGBoost? Ask first, it means
+  changing the Docker image.
+- **Time.** The platform trains the model 5 times (one per fold, ~2.9 M rows
+  each) and predicts, within **1 h in total** on CPU. Check the
+  `train_time` of your local run.
+- **Reproducibility.** Set `random_state` / seeds: the organizers may re-run
+  a submission.
 
 ## Running it
 
