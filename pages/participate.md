@@ -30,7 +30,8 @@ territories excluded), about 0.6% of the rows. The features are:
   housing, 1 to 50 inhabitants (`sparse_share`, a proxy of the
   wildland-urban interface);
 - the land cover, static, from Corine Land Cover 2018 (100 m): share of the
-  whole cell (sea included) that is land (`land_share`), artificial
+  whole cell (sea included) that is inland, lakes and rivers included
+  (`land_share`), artificial
   (`lc_urban`), arable land (`lc_crops`), vineyards and orchards
   (`lc_vine_orchard`), pastures (`lc_pasture`), farmland mixed with natural
   vegetation (`lc_agri_natural`), forest (`lc_forest`), natural grassland
@@ -45,6 +46,9 @@ territories excluded), about 0.6% of the rows. The features are:
   being maritime pine (`sp_pine_maritime`), Aleppo pine (`sp_pine_aleppo`),
   laricio and black pine (`sp_pine_black`) and holm and cork oak
   (`sp_oak_evergreen`);
+- the same BD Forêt regrouped into 14 fuel classes of similar phenology
+  (`fuel_broadleaf_decid`, `fuel_pine_aleppo`, `fuel_heath_med`...), the
+  classes the vegetation features below are computed on;
 - the day: `date`;
 - the weather of the day, from the Météo-France SIM2 reanalysis averaged over
   the cell: temperatures (`t_min`, `t_mean`, `t_max`), `rain`, `snow`,
@@ -53,10 +57,16 @@ territories excluded), about 0.6% of the rows. The features are:
 - the weather of the previous days (never the day itself): rain over 3, 7
   and 30 days, `days_since_rain`, 7-day means of `t_max` and `rh`,
   `swi_prev`;
-- the vegetation: the last MODIS MOD13Q1 NDVI composite (250 m, 16 days)
-  completed before the day, averaged over the cell (`ndvi`), its anomaly
-  with respect to the cell's usual NDVI at that time of year (`ndvi_anom`),
-  and its age in days (`ndvi_age`).
+- the vegetation, from the last MODIS MOD13Q1 composite (250 m, 16 days)
+  completed before the day, on the cell's forest, heath and grassland pixels
+  only: how dry the vegetation is compared with every state its vegetation
+  type takes over the training years, from the NDVI (greenness: `ndvi_pct`,
+  `ndvi_pct_p10`, `ndvi_extreme`) and the NBR (water content: `nbr_pct`,
+  `nbr_pct_p10`, `nbr_extreme`, `dry_gap`), and the share of it burnt in
+  the last 1 and 5 years (`burnt_1y`, `burnt_5y`). Columns on the data
+  behind them (`vi_age`, `vi_px`, `vi_valid_share`, `fuel_px`,
+  `fuel_pure_share`) tell how far to trust them; `DATA.md` defines every
+  column exactly.
 
 ## The metric
 
