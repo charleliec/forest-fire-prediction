@@ -13,8 +13,12 @@ from benchopt import BaseDataset
 WEATHER = ["t_mean", "t_min", "t_max", "rain", "snow", "wind", "rh", "q",
            "sw_rad", "lw_rad", "etp", "evap", "swi", "wg_root",
            "snow_depth", "rain_3d", "rain_7d", "rain_30d",
-           "days_since_rain", "t_max_7d", "rh_7d", "swi_prev", "ndvi",
-           "ndvi_anom", "ndvi_age"]
+           "days_since_rain", "t_max_7d", "rh_7d", "swi_prev"]
+# Vegetation features of the last MODIS composite: shares / percentiles in
+# [0, 1] (dry_gap in [-1, 1]), then the integer columns.
+VEGETATION = ["ndvi_pct", "ndvi_pct_p10", "ndvi_extreme", "nbr_pct",
+              "nbr_pct_p10", "nbr_extreme", "dry_gap", "burnt_1y",
+              "burnt_5y", "vi_valid_share"]
 # Static per-cell features (constant over days).
 ROADS = ["road_km", "motorway_km", "road_traffic", "road_dist"]
 POPULATION = ["pop_density", "inhabited_share", "sparse_share"]
@@ -28,7 +32,13 @@ FOREST = ["forest_broadleaf", "forest_conifer", "forest_mixed",
           "sp_larch", "sp_conifer_mixed", "sp_oak_evergreen",
           "sp_oak_deciduous", "sp_beech", "sp_chestnut", "sp_robinia",
           "sp_poplar", "sp_broadleaf_mixed", "sp_mixed"]
-SHARES = LANDCOVER + FOREST
+FUEL_CLASSES = ["fuel_broadleaf_decid", "fuel_broadleaf_med",
+                "fuel_oak_evergreen", "fuel_pine_maritime",
+                "fuel_pine_aleppo", "fuel_pine_mountain",
+                "fuel_fir_spruce_douglas", "fuel_larch",
+                "fuel_conifer_mixed", "fuel_mixed", "fuel_open_forest",
+                "fuel_heath_med", "fuel_heath_other", "fuel_grass"]
+SHARES = LANDCOVER + FOREST + FUEL_CLASSES
 
 
 class Dataset(BaseDataset):
@@ -68,8 +78,16 @@ class Dataset(BaseDataset):
         shares = rng.dirichlet(np.ones(len(SHARES)), self.n_cells)
         for j, col in enumerate(SHARES):
             df[col] = shares[df["cell_id"], j]
+        fuel_px = rng.integers(0, 3000, self.n_cells)
+        df["fuel_px"] = fuel_px[df["cell_id"]].astype("int32")
+        df["fuel_pure_share"] = rng.uniform(size=self.n_cells)[df["cell_id"]]
         for col in WEATHER:
             df[col] = rng.normal(size=n)
+        for col in VEGETATION:
+            df[col] = rng.uniform(size=n)
+        df["dry_gap"] = df["nbr_pct"] - df["ndvi_pct"]
+        df["vi_px"] = (df["vi_valid_share"] * df["fuel_px"]).astype("int32")
+        df["vi_age"] = rng.integers(1, 17, n).astype("int16")
         logit = (-5 + 1.2 * df["t_max"] - 0.8 * df["rain_30d"]
                  + 0.6 * df["wind"] + propensity[df["cell_id"]])
         fire = pd.Series(rng.uniform(size=n) < 1 / (1 + np.exp(-logit)),
@@ -81,8 +99,9 @@ class Dataset(BaseDataset):
             "n_fires": n_fires.astype("int16"),
             "area_m2": (n_fires * rng.lognormal(7, 2, n)).astype("float32"),
         }, index=df.index)
-        df = df.astype({c: "float32" for c in WEATHER + ROADS + POPULATION
-                        + SHARES + ["x", "y", "lon", "lat"]})
+        df = df.astype({c: "float32" for c in WEATHER + VEGETATION + ROADS
+                        + POPULATION + SHARES
+                        + ["fuel_pure_share", "x", "y", "lon", "lat"]})
 
         year = df["date"].dt.year
         train, public = year < 2018, year == 2018

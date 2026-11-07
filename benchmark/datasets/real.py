@@ -8,8 +8,9 @@ features are the cell position, the national road network and its traffic
 in the cell (DGITM, static), its population (INSEE 1 km grid, static), its
 land cover (Corine Land Cover 2018) and forest types (IGN BD Forêt v2,
 both static), the date, the weather of the day and of the previous
-days (Météo-France SIM2) and the last MODIS NDVI composite completed
-before the day. See ``pipeline/`` for how the table is built.
+days (Météo-France SIM2) and vegetation features (NDVI / NBR percentiles,
+recent burns) from the last MODIS composite completed before the day. See
+``pipeline/`` for how the table is built.
 
 Split by year: ``train`` = 2015-2017 and 2019-2024, ``public`` = 2018
 (features + label, scored on the public leaderboard), ``private`` = 2025

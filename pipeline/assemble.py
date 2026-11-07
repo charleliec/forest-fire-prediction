@@ -12,20 +12,24 @@ every cell of the grid and every day of FIRST_YEAR..LAST_YEAR:
   Corine Land Cover 2018 group (forest, maquis, crops, urban...);
 - forest type (static, see build_forest.py): share of the cell in each
   BD Forêt v2 composition (broadleaf, conifer...) and dominant species;
+- fuel pixels (static, see build_vegetation.py): number of 250 m MODIS
+  pixels of the cell with one BD Forêt fuel class, and the share of the
+  cell's fuel area they hold;
 - calendar: ``date``;
 - weather of the day (SIM2, see build_weather.VARIABLES);
 - antecedent weather, from the days *before* the day only: rain sums over
   3 / 7 / 30 days, days since the last rain >= 1 mm, mean t_max / rh over
   7 days, swi of the previous day;
-- vegetation: the last MOD13Q1 NDVI composite *completed before* the day
-  (a composite covers 16 days from its start date; using one that overlaps
-  the day would show the burn scar), its age in days, and its anomaly with
-  respect to the cell's mean for that composite period over the training
-  years;
+- vegetation (see build_vegetation.py): the features of the last MOD13Q1
+  composite *completed before* the day (a composite covers 16 days from its
+  start date; using one that overlaps the day would show the burn scar):
+  NDVI / NBR percentiles of the fuel pixels within their class, recent
+  burns, the number and share of usable pixels, and ``vi_age``, the days
+  since the end of the composite;
 - label: ``fire`` (at least one BDIFF fire alert in the cell that day),
   plus ``n_fires`` and ``area_m2`` (burned area), which are not features.
 
-    python pipeline/assemble.py [--no-ndvi]
+    python pipeline/assemble.py [--no-vegetation]
 """
 
 import argparse
@@ -33,11 +37,11 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from common import FIRST_YEAR, INTERIM, LAST_YEAR, PROCESSED, TEST_YEARS
+from common import FIRST_YEAR, INTERIM, LAST_YEAR, PROCESSED
 
 COMPOSITE_DAYS = 16
 # Static per-cell tables, data/interim/<name>_cell.parquet.
-STATIC = ["roads", "population", "landcover", "forest"]
+STATIC = ["roads", "population", "landcover", "forest", "fuel"]
 
 
 def wide(df, col, cells, days):
@@ -80,30 +84,23 @@ def antecedent(weather, cells):
                          for k, v in feats.items()}, index=idx).reset_index()
 
 
-def add_ndvi(df):
-    ndvi = pd.read_parquet(INTERIM / "ndvi_cell.parquet")
-    ndvi = ndvi.rename(columns={"date": "composite_start"})
-    ndvi["available"] = ndvi["composite_start"] + pd.Timedelta(
+def add_vegetation(df):
+    veg = pd.read_parquet(INTERIM / "vegetation_cell.parquet")
+    # Days start..start+15; usable from the day after.
+    veg["available"] = veg.pop("composite_start") + pd.Timedelta(
         days=COMPOSITE_DAYS)
-    # Climatology per cell and composite period, training years only.
-    ndvi["period"] = ndvi["composite_start"].dt.dayofyear
-    train = ~ndvi["composite_start"].dt.year.isin(TEST_YEARS)
-    clim = (ndvi[train].groupby(["cell_id", "period"])["ndvi"].mean()
-            .rename("ndvi_clim"))
-    ndvi = ndvi.join(clim, on=["cell_id", "period"])
-    ndvi["ndvi_anom"] = ndvi["ndvi"] - ndvi["ndvi_clim"]
-    ndvi = ndvi.sort_values("available")[
-        ["cell_id", "available", "ndvi", "ndvi_anom"]]
-
-    df = df.sort_values("date")
-    df = pd.merge_asof(df, ndvi, left_on="date", right_on="available",
-                       by="cell_id", direction="backward",
-                       allow_exact_matches=True)
-    df["ndvi_age"] = (df["date"] - df.pop("available")).dt.days
+    df = pd.merge_asof(df.sort_values("date"), veg.sort_values("available"),
+                       left_on="date", right_on="available", by="cell_id",
+                       direction="backward", allow_exact_matches=True)
+    if df["available"].isna().any():
+        raise SystemExit("some days have no vegetation composite before")
+    # Days since the last day of the composite (>= 1).
+    df["vi_age"] = ((df["date"] - df.pop("available")).dt.days + 1).astype(
+        "int16")
     return df
 
 
-def main(no_ndvi):
+def main(no_vegetation):
     grid = pd.read_parquet(INTERIM / "grid.parquet")
     weather = pd.read_parquet(INTERIM / "weather_cell_day.parquet")
     fires = pd.read_parquet(INTERIM / "fires_cell_day.parquet")
@@ -119,8 +116,8 @@ def main(no_ndvi):
         raise SystemExit(f"{len(df)} rows, expected {expected}: missing "
                          "weather for some (cell, day)")
 
-    if not no_ndvi:
-        df = add_ndvi(df)
+    if not no_vegetation:
+        df = add_vegetation(df)
 
     df = df.merge(grid[["cell_id", "x", "y", "lon", "lat"]], on="cell_id")
     df["x"] = (df["x"] / 1000).astype("float32")
@@ -153,6 +150,7 @@ def main(no_ndvi):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--no-ndvi", action="store_true",
-                        help="skip NDVI (development only)")
-    main(parser.parse_args().no_ndvi)
+    parser.add_argument("--no-vegetation", action="store_true",
+                        help="skip the vegetation features (development "
+                        "only)")
+    main(parser.parse_args().no_vegetation)
