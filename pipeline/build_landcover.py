@@ -11,8 +11,9 @@ per cell.
 Per cell, the share of the *whole* 25 km cell (625 km2) covered by each
 group of CLC classes (level-3 codes):
 
-- ``land_share``: any class but sea and ocean (523), i.e. French land and
-  inland / coastal water; it is below 1 on the coast and the borders;
+- ``land_share``: share of the cell inland, in France: any class but sea
+  and ocean (523), lakes and rivers included; below 1 on the coast and the
+  borders;
 - ``lc_urban``: artificial surfaces (1xx);
 - ``lc_crops``: arable land and annual crops (211-213, 241, 242);
 - ``lc_vine_orchard``: vineyards, orchards, olive groves (221-223);
