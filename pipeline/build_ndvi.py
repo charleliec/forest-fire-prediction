@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 import requests
 from pyproj import Transformer
+from urllib3.util.retry import Retry
 
 from common import (CELL_SIZE, CRS_L93, INTERIM, LAST_YEAR, NDVI_DIR,
                     WARMUP_YEAR, cell_index)
@@ -51,6 +52,38 @@ NBR_LAYERS = ["_250m_16_days_NIR_reflectance",
               "_250m_16_days_MIR_reflectance"]
 TASKS_NBR = NDVI_DIR / "tasks_nbr.json"
 RASTERS = NDVI_DIR / "rasters"
+
+
+# AppEEARS drops connections now and then: retry every call with backoff
+# (about 10 min in all) rather than abort a run of several hours.
+http = requests.Session()
+http.mount("https://", requests.adapters.HTTPAdapter(max_retries=Retry(
+    total=8, backoff_factor=5, allowed_methods=None,
+    status_forcelist=(429, 500, 502, 503, 504))))
+
+
+def save(url, headers, dest, size, tries=5):
+    """Stream ``url`` to ``dest`` through ``*.part``, renamed once complete,
+    so an interrupted run never leaves a truncated file behind."""
+    part = dest.with_name(dest.name + ".part")
+    for attempt in range(1, tries + 1):
+        try:
+            with http.get(url, headers=headers, stream=True,
+                          timeout=600) as r:
+                r.raise_for_status()
+                with open(part, "wb") as fh:
+                    for chunk in r.iter_content(1 << 20):
+                        fh.write(chunk)
+            if part.stat().st_size != size:
+                raise IOError(f"{dest.name}: incomplete download")
+            part.replace(dest)
+            return
+        except (requests.RequestException, IOError) as e:
+            if attempt == tries:
+                raise
+            print(f"  {dest.name}: {e}, retry {attempt}/{tries - 1}",
+                  flush=True)
+            time.sleep(60 * attempt)
 
 
 def credentials():
@@ -69,7 +102,7 @@ def credentials():
 
 
 def login():
-    r = requests.post(f"{API}/login", auth=credentials(), timeout=60)
+    r = http.post(f"{API}/login", auth=credentials(), timeout=60)
     r.raise_for_status()
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -109,8 +142,8 @@ def submit():
                            "projection": "native"},
             },
         }
-        r = requests.post(f"{API}/task", json=task, headers=headers,
-                          timeout=300)
+        r = http.post(f"{API}/task", json=task, headers=headers,
+                      timeout=300)
         if not r.ok:
             raise SystemExit(f"{year}: {r.status_code} {r.text}")
         tasks[str(year)] = r.json()["task_id"]
@@ -128,14 +161,14 @@ def submit_nbr():
     for year, task_id in tasks.items():
         if year in nbr:
             continue
-        params = requests.get(f"{API}/task/{task_id}", headers=headers,
-                              timeout=60).json()["params"]
+        params = http.get(f"{API}/task/{task_id}", headers=headers,
+                          timeout=60).json()["params"]
         params["layers"] = [{"product": PRODUCT, "layer": layer}
                             for layer in NBR_LAYERS]
         task = {"task_type": "area", "task_name": f"firegrid_nbr_{year}",
                 "params": params}
-        r = requests.post(f"{API}/task", json=task, headers=headers,
-                          timeout=300)
+        r = http.post(f"{API}/task", json=task, headers=headers,
+                      timeout=300)
         if not r.ok:
             raise SystemExit(f"{year}: {r.status_code} {r.text}")
         nbr[year] = r.json()["task_id"]
@@ -149,16 +182,16 @@ def status():
         if not path.exists():
             continue
         for year, task_id in json.loads(path.read_text()).items():
-            info = requests.get(f"{API}/task/{task_id}", headers=headers,
-                                timeout=60).json()
+            info = http.get(f"{API}/task/{task_id}", headers=headers,
+                            timeout=60).json()
             print(path.stem, year, task_id, info["status"])
 
 
 def wait_done(year, task_id):
     """Block until the task is done; returns fresh auth headers."""
     headers = login()
-    while (st := requests.get(f"{API}/task/{task_id}", headers=headers,
-                              timeout=60).json()["status"]) != "done":
+    while (st := http.get(f"{API}/task/{task_id}", headers=headers,
+                          timeout=60).json()["status"]) != "done":
         if st == "error":
             raise SystemExit(f"{year}: task {task_id} failed")
         print(f"{year}: {st}, waiting...", flush=True)
@@ -170,9 +203,8 @@ def wait_done(year, task_id):
 def download():
     """Download every raster of the wanted layers and keep it on disk.
 
-    A file is written to ``*.part`` and renamed once complete, so an
-    interrupted run never leaves a truncated raster behind; existing
-    rasters of the expected size are skipped.
+    Existing rasters of the expected size are skipped, so an interrupted
+    run resumes where it stopped.
     """
     jobs = [(TASKS, [LAYER, "_250m_16_days_VI_Quality"])]
     if TASKS_NBR.exists():
@@ -180,8 +212,8 @@ def download():
     for path, layers in jobs:
         for year, task_id in json.loads(path.read_text()).items():
             headers = wait_done(year, task_id)
-            files = requests.get(f"{API}/bundle/{task_id}", headers=headers,
-                                 timeout=60).json()["files"]
+            files = http.get(f"{API}/bundle/{task_id}", headers=headers,
+                             timeout=60).json()["files"]
             tifs = [f for f in files if f["file_name"].endswith(".tif")
                     and any(f"{layer}_doy" in f["file_name"]
                             for layer in layers)]
@@ -196,18 +228,8 @@ def download():
                   f"({sum(f['file_size'] for f in todo) / 1e9:.2f} GB)",
                   flush=True)
             for f in todo:
-                dest = out / f["file_name"].split("/")[-1]
-                part = dest.with_name(dest.name + ".part")
-                with requests.get(f"{API}/bundle/{task_id}/{f['file_id']}",
-                                  headers=headers, stream=True,
-                                  timeout=600) as r:
-                    r.raise_for_status()
-                    with open(part, "wb") as fh:
-                        for chunk in r.iter_content(1 << 20):
-                            fh.write(chunk)
-                if part.stat().st_size != f["file_size"]:
-                    raise IOError(f"{dest.name}: incomplete download")
-                part.replace(dest)
+                save(f"{API}/bundle/{task_id}/{f['file_id']}", headers,
+                     out / f["file_name"].split("/")[-1], f["file_size"])
     total = sum(p.stat().st_size for p in RASTERS.rglob("*.tif"))
     print(f"done: {total / 1e9:.1f} GB in {RASTERS}")
 
