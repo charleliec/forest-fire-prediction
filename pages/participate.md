@@ -76,14 +76,13 @@ Whole years are held out, because days of the same season share their
 weather, their vegetation and their fires.
 
 - **Training data**: 2015-2017 and 2019-2024.
-- **CV column**: 5-fold cross-validation on the training data, each fold
-  holding out whole years (`GroupKFold` on the year).
 - **Public column** (live feedback): the year 2018, a mild fire year.
 - **Private / final ranking** (hidden): the year 2025.
 
-Each fold's model predicts both test years, and every score is averaged over
-the 5 folds. Select your models on the CV score rather than on the public
-one: a single year is a noisy benchmark.
+The platform trains your model once, on all the training years, then scores
+it on both test years. A single year is a noisy benchmark: rather than
+tuning on the public score, you can cross-validate locally over the training
+years (see below).
 
 ## What you submit
 
@@ -112,8 +111,8 @@ class Solver(CompetSolver):
 datetime), `y_train` the 0/1 `fire` label. Your trained model must expose
 `predict_proba(X)` (the second column is used as the risk score), or
 `predict(X) -> ndarray (n_samples,)` returning a risk score, for instance a
-predicted number of fires. The platform **trains your code**, once per fold,
-then evaluates it, within the execution time limit. Copy
+predicted number of fires. The platform **trains your code** once, then
+evaluates it, within the execution time limit. Copy
 `benchmark/solvers/hgb.py`, a working gradient-boosting baseline, to
 `my_submission/submission.py`.
 
@@ -123,8 +122,8 @@ without their label, and any external record of their fires is forbidden
 
 ## Run it locally, same code as the server
 
-`local_config.yml` sets the dataset, the solvers, the seed and the 5 folds
-of a local run. Add your `my_submission/submission.py` to its `solver` list,
+`local_config.yml` sets the dataset, the solvers and the seed of a local
+run, the same as the server's. Add your `my_submission/submission.py` to its `solver` list,
 then:
 
 ```bash
@@ -137,7 +136,17 @@ with the prepared `train.parquet`, `public.parquet` and `private.parquet`
 `-s my_submission/submission.py` runs your submission alone, and
 `-d Simulated` runs on a small synthetic dataset.
 
-The cross-validation and public scores you get locally (`objective_capture_cv`,
-`objective_capture_public`, `objective_ap_cv`, `objective_ap_public`, averaged
-over the 5 repetitions) are the CV and public columns of the leaderboard. The
+The public scores you get locally (`objective_capture_public`,
+`objective_ap_public`) are the public columns of the leaderboard. The
 benchmark you run *is* the benchmark the server runs.
+
+To select models without overfitting the public year, cross-validate over
+the training years (5 folds, whole years held out, one fold per repetition):
+
+```bash
+benchopt run benchmark --config local_config.yml \
+    -o "wildfire-daily-risk[n_splits=5]" -r 5
+```
+
+It adds `objective_capture_cv` and `objective_ap_cv`, averaged over the
+folds. This is optional and local only: the platform does not run it.

@@ -11,7 +11,7 @@ phase ``input_data/benchmark`` on that file, loaded by path::
         --output <output_dir>/results.parquet
 
 The phase ``config.yaml`` is a native benchopt run config (``dataset``,
-``seed``, ``n_repetitions``: one cross-validation fold per repetition). The
+``seed``, ``n_repetitions``: 1, one training on all the training years). The
 scoring program scores the test predictions of ``results.parquet``. The
 prepared data comes with the phase, in ``input_data/data``. Without it, the
 run uses the image's $BENCHOPT_DATA_HOME (/app/data, where a self-hosted

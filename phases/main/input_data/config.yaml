@@ -3,6 +3,6 @@
 dataset:
   - Real
 seed: 42
-# One cross-validation fold per repetition: match the objective's n_splits.
-n_repetitions: 5
+# One training on all the training years (objective n_splits=0, no CV).
+n_repetitions: 1
 no_timeout: true

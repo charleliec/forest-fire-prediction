@@ -1,14 +1,16 @@
 """Scoring program for the competition.
 
-The ingestion run cross-validates the submission, one fold per repetition.
-Each row of ``results.parquet`` holds the fold's metrics (``objective_*``)
-and its predictions on each hidden test set (``objective_<test set>_pred``).
-This program scores these predictions against the labels of the phase
-``reference_data`` (one ``<test set>.csv`` per hidden test set, with the
-``target`` label and the ``date`` of each row, which the daily ranking metric
-needs), and averages every score over the folds into ``scores.json``:
-``<metric>_cv``, ``<metric>_public``, ``<metric>_private`` for each metric
-(``capture``, ``ap``), ``train_time`` and ``duration``.
+The ingestion run trains the submission once on all the training years (one
+repetition). Each row of ``results.parquet`` holds a run's metrics
+(``objective_*``) and its predictions on each hidden test set
+(``objective_<test set>_pred``). This program scores these predictions
+against the labels of the phase ``reference_data`` (one ``<test set>.csv``
+per hidden test set, with the ``target`` label and the ``date`` of each row,
+which the daily ranking metric needs), and averages every score over the
+rows (a single one on the platform) into ``scores.json``:
+``<metric>_public``, ``<metric>_private`` for each metric (``capture``,
+``ap``), plus ``<metric>_cv`` if the run cross-validated, ``train_time``
+and ``duration``.
 
 The metric is the benchmark's ``benchmark_utils/metric.py``, which
 ``tools/create_bundle.py`` copies next to this program.

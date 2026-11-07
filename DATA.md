@@ -34,7 +34,7 @@ features**.
 - private test: hidden like `fire`, in `reference/private.csv` (`target`,
   `n_fires`, `area_m2`, `date`), not in `private.parquet`.
 - `get_data` (Real and Simulated) returns them apart from `X`, as
-  `outcomes` / `outcomes_public`; the objective splits them per fold with `y`.
+  `outcomes` / `outcomes_public` (split per fold with `y` under local CV).
 
 ## Features
 

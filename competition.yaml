@@ -62,10 +62,10 @@ phases:
     tasks:
       - 0
 
-# Column keys are those of scores.json (scoring program), averaged over the
-# CV folds: the objective's metrics (<metric>_cv, <metric>_public),
-# <metric>_<test set> for each hidden test set of the reference data, and
-# train_time (mean per fold) and duration.
+# Column keys are those of scores.json (scoring program), from a single
+# training on all the training years (no CV on the platform): the objective's
+# metrics (<metric>_public), <metric>_<test set> for each hidden test set of
+# the reference data, and train_time and duration.
 leaderboards:
   - title: Results
     key: main
@@ -88,19 +88,11 @@ leaderboards:
         index: 3
         sorting: desc
         hidden: True
-      - title: Fires captured, top 50 (CV)
-        key: capture_cv
-        index: 4
-        sorting: desc
-      - title: Average precision (CV)
-        key: ap_cv
-        index: 5
-        sorting: desc
       - title: Train time (s)
         key: train_time
-        index: 6
+        index: 4
         sorting: asc
       - title: Duration (s)
         key: duration
-        index: 7
+        index: 5
         sorting: asc

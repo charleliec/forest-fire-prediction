@@ -117,21 +117,22 @@ In this order, since each step builds on the previous one:
 ## Running locally
 
 `local_config.yml` sets what a local run does: the dataset and its
-parameters, the solvers, the seed and the number of CV folds. Both
+parameters, the solvers, the seed and the number of repetitions. Both
 `benchopt prepare` and `benchopt run` read it:
 
 ```bash
 pip install -r requirements.txt
 benchopt test benchmark --skip-install                     # design checks
 benchopt prepare benchmark --config local_config.yml
-benchopt run benchmark --config local_config.yml           # 5 CV folds
+benchopt run benchmark --config local_config.yml           # as the platform
+benchopt run benchmark --config local_config.yml     -o "wildfire-daily-risk[n_splits=5]" -r 5               # optional 5-fold CV
 benchopt run benchmark --config local_config.yml -d Simulated   # smoke test
 ```
 
 A command-line option overrides its key in the file, as `-d Simulated` does
 here. The platform runs the phase config instead,
 `phases/main/input_data/config.yaml`: keep the dataset, seed and number of
-folds of the two files in sync.
+repetitions of the two files in sync.
 
 The data goes to `$BENCHOPT_DATA_HOME` (default: `benchmark/data`).
 benchopt caches `prepare`: if you delete the data or change

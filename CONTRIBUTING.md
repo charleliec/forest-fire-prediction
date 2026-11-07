@@ -11,7 +11,7 @@ columns.
 |---|---|
 | `benchmark/solvers/` | **Your models go here.** `hgb.py` is the baseline to beat, `dummy.py` the floor |
 | `benchmark/benchmark_utils/metric.py` | The metrics (read, don't edit) |
-| `benchmark/objective.py` | CV scheme and scoring (read, don't edit) |
+| `benchmark/objective.py` | training, optional CV and scoring (read, don't edit) |
 | `benchmark/datasets/real.py` | Train / public / private split |
 | `pipeline/` | Builds the data table from raw sources. You don't need to run it |
 | `template_starting_kit.ipynb` | Notebook for participants (EDA and baseline) |
@@ -94,22 +94,23 @@ class Solver(CompetSolver):
     requirements = ["scikit-learn"]
 
     def get_model(self, meta):
-        return Model()   # untrained, one per CV fold
+        return Model()   # untrained, one per run
 ```
 
-What happens on the platform, for each of the 5 folds:
+What happens on the platform (once, on all the training years):
 
 1. `Solver.get_model(meta)` creates a fresh, untrained `Model()`.
 2. `Model.fit(X_train, y_train)` learns the per-cell rates, builds the
    features and trains the classifier.
-3. `Model.predict_proba(X)` is called on the held-out years, the public
-   year and the private year. Column 1 is the risk score.
+3. `Model.predict_proba(X)` is called on the public year and the private
+   year (and on the held-out years under local CV). Column 1 is the risk
+   score.
 
 Notes:
 
 - Anything learned from `y` (per-cell rates, target encoding) must be
   computed in `fit` and stored on `self`, as `cell_rate` is. `fit` only sees
-  the training fold, so it does not leak.
+  the training years (the training fold under CV), so it does not leak.
 - Sample weights, negative subsampling and torch training loops go in
   `Model.fit` too. For example, `self.clf.fit(F, y, sample_weight=w)`.
 - `meta["submission_dir"]` is the folder of the file, for loading extra
@@ -136,9 +137,8 @@ Notes:
 - **Packages.** Only `requirements.txt` (benchopt, pandas, scikit-learn,
   plus torch in the image). Want LightGBM / XGBoost? Ask first, it means
   changing the Docker image.
-- **Time.** The platform trains the model 5 times (one per fold, ~2.9 M rows
-  each) and predicts, within **1 h in total** on CPU. Check the
-  `train_time` of your local run.
+- **Time.** The platform trains the model once (~3.2 M rows) and predicts,
+  within **1 h in total** on CPU. Check the `train_time` of your local run.
 - **Reproducibility.** Set `random_state` / seeds: the organizers may re-run
   a submission.
 
@@ -148,15 +148,19 @@ Notes:
 # quick smoke test on synthetic data (seconds)
 benchopt run benchmark --config local_config.yml -d Simulated -s MyModel
 
-# real evaluation: 5 CV folds, compared to the baselines
+# what the platform runs: one training on all training years, compared to
+# the baselines
 benchopt run benchmark --config local_config.yml -s Dummy -s HGB -s MyModel
+
+# model selection: 5-fold CV over the training years (5 trainings)
+benchopt run benchmark --config local_config.yml -s Dummy -s HGB -s MyModel     -o "wildfire-daily-risk[n_splits=5]" -r 5
 ```
 
 Results open in the browser and are saved in `benchmark/outputs/`. Read the
 columns:
 
-- `objective_capture_cv`: **the one to optimize.** 5-fold CV, whole years
-  held out.
+- `objective_capture_cv` (CV run only): **the one to optimize.** 5-fold CV,
+  whole years held out, averaged over the folds.
 - `objective_capture_public`: the 2018 test year. A single year, so noisy.
   Don't tune on it.
 - `objective_ap_*`: secondary metric.
