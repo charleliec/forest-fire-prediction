@@ -16,10 +16,10 @@ from benchmark_utils.base_solver import CompetSolver
 def add_calendar(X):
     X = X.copy()
     date = X.pop("date")
-    doy = date.dt.dayofyear.to_numpy()
+    doy = date.dt.day_of_year.to_numpy()
     X["doy_sin"] = np.sin(2 * np.pi * doy / 365.25)
     X["doy_cos"] = np.cos(2 * np.pi * doy / 365.25)
-    X["weekday"] = date.dt.weekday.to_numpy()
+    X["weekday"] = date.dt.day_of_week.to_numpy()
     return X
 
 

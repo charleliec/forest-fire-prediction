@@ -68,7 +68,7 @@ class Model:
 
         # Calendar, from the row only. Then drop `date`: the
         # classifier can't use a datetime column.
-        doy = X["date"].dt.dayofyear.to_numpy()
+        doy = X["date"].dt.day_of_year.to_numpy()
         X["doy_sin"] = np.sin(2 * np.pi * doy / 365.25)
         X["doy_cos"] = np.cos(2 * np.pi * doy / 365.25)
         X = X.drop(columns="date")
