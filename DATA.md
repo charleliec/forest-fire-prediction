@@ -519,9 +519,10 @@ composite from 18 February where its scar still shows.
 underneath has a low NBR and NDVI for a few weeks, as if burnt, and the
 seasonal baseline does not catch it because the melt comes weeks earlier
 or later from one year to the next. A pixel is *snowy* in a composite when
-its VI Quality has the snow / ice bit, or says cloudy (MODIS often takes
-snow for cloud) while SIM2 has at least 1 cm of snow on average over its
-cell during the composite. In the 4 composites (64 days) after a pixel's
+its VI Quality has the snow / ice bit or says cloudy (MODIS often takes
+snow for cloud), while SIM2 has at least 1 cm of snow on average over its
+cell during the composite (the snow / ice bit alone also flags summer
+clouds, on the Channel coast for instance). In the 4 composites (64 days) after a pixel's
 last snowy one, a burn candidate of that pixel waits: it can be neither
 confirmed nor dismissed, and the values the pixel shows meanwhile stay out
 of its recent baselines. The first usable composite after that decides: a

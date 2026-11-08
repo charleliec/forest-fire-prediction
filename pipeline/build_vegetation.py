@@ -85,9 +85,9 @@ DROP_NDVI = 1000    # NDVI drop (x 1e-4) a burn must come with
 # the NBR of mountain forests falls far below 0 every autumn and winter.
 BURN_DOY = (49, 273)
 # Snow. A pixel is snowy in a composite when its VI Quality has the snow /
-# ice bit, or says cloudy (MODLAND: MODIS often takes snow for cloud) while
+# ice bit or says cloudy (MODLAND: MODIS often takes snow for cloud), while
 # SIM2 has at least SNOW_DEPTH m of snow on average over its cell in the
-# composite. For POST_SNOW composites after its last snowy one, a burn
+# composite (the snow / ice bit alone also flags summer clouds). For POST_SNOW composites after its last snowy one, a burn
 # candidate of the pixel can be flagged but not confirmed: after the melt,
 # flattened, still-brown vegetation looks burnt for a few weeks.
 SNOW_DEPTH = 0.01   # m
@@ -525,7 +525,7 @@ def burns(dates, ci, cells):
         ndvi, nbr, has_nbr = load(date)
         past[t % len(past)] = nbr
         snow, cloudy = load_snow(date)
-        last_snow[snow | (cloudy & (snow_depth[t][ci] >= SNOW_DEPTH))] = t
+        last_snow[(snow | cloudy) & (snow_depth[t][ci] >= SNOW_DEPTH)] = t
         if not has_nbr or not (BURN_DOY[0] <= date.timetuple().tm_yday
                                <= BURN_DOY[1]):
             candidates[date] = np.array([], dtype="int64")
