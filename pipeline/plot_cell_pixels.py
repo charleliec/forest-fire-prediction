@@ -68,6 +68,7 @@ S2_RES = 20         # m, Sentinel-2 display resolution
 FINE = 25           # m, BD Forêt / Corine display resolution
 MODIS_RES = 50      # m, display resolution of the 250 m pixels
 MIN_FUEL_PX = 1000  # fuel pixels of a default cell
+OVERLAY_ALPHA = .45  # opacity of the maps drawn over Sentinel-2
 CELL_LINE = "#ffffff"
 NONE_C = "#000000"      # nothing mapped / not fuel
 LOW_C = "#55544f"       # some fuel, under 75 %
@@ -455,15 +456,25 @@ def pixel_status(win, composite, pixels, cell_ids):
 
 # --- figure ----------------------------------------------------------------
 
-def categorical(ax, img, entries, title, note=None, ncol=2):
-    """``img``: category index per pixel (-1 / NaN: background)."""
-    lut = np.array([to_rgba(c) for _, c in entries])
+def categorical(ax, img, entries, title, note=None, ncol=2, base=None,
+                clear=()):
+    """``img``: category index per pixel (-1 / NaN: background). With
+    ``base`` (an RGB image), the categories are drawn over it with
+    OVERLAY_ALPHA, the entries named in ``clear`` not at all."""
+    alpha = 1. if base is None else OVERLAY_ALPHA
+    lut = np.array([to_rgba(c, 0. if name in clear else alpha)
+                    for name, c in entries])
     rgba = np.zeros(img.shape + (4,))
     ok = ~np.isnan(img) & (img >= 0)
     rgba[ok] = lut[img[ok].astype(int)]
-    present = np.unique(img[ok].astype(int))
-    show(ax, rgba, title, note)
-    handles = [plt.Rectangle((0, 0), 1, 1, color=entries[k][1],
+    present = [k for k in np.unique(img[ok].astype(int))
+               if entries[k][0] not in clear]
+    if base is None:
+        show(ax, rgba, title, note)
+    else:
+        show(ax, base, title, note)
+        ax.imshow(rgba, extent=EXTENT, interpolation="nearest", zorder=2)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=entries[k][1], alpha=alpha,
                              label=entries[k][0]) for k in present]
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0, -.005),
               ncol=ncol, frameon=False, fontsize=7.5, labelcolor=INK,
@@ -627,27 +638,38 @@ def cell_view(day, cell, grid, pixels, src):
     cell_st = status.ravel()[win.local(pix[in_cell])]
     n_st = np.bincount(cell_st.astype(int), minlength=len(STATUS))
 
-    fig, axes = plt.subplots(3, 4, figsize=(22, 20.5), dpi=120,
+    fig, axes = plt.subplots(4, 4, figsize=(22, 27.5), dpi=120,
                              gridspec_kw={"wspace": .04, "hspace": .42})
-    ax = axes.flat
+    ax = list(axes.flat[:4]) + list(axes.flat[8:])
+    over = axes.flat[4:8]
     # Display stretch, the same for the 3 bands (keeps the colours):
     # the 1st-99th percentiles of the cell over 0-1, gamma 1.4.
     lo, hi = np.percentile(rgb[(rgb > 0).all(axis=-1)], (1, 99))
-    show(ax[0], np.clip((rgb - lo) / (hi - lo), 0, 1) ** (1 / 1.4),
-         "Sentinel-2 true colour (10 m, contrast stretched)",
+    s2 = np.clip((rgb - lo) / (hi - lo), 0, 1) ** (1 / 1.4)
+    show(ax[0], s2, "Sentinel-2 true colour (10 m, contrast stretched)",
          f"{s2_day}, {s2_cloud:.0%} cloud or shadow over the cell; "
          "circles: fires of the day", fires=True)
-    categorical(ax[1], clc.astype("float32"),
-                [(n, c) for n, c, _ in CLC_GROUPS]
-                + [("No Corine data (sea, estuary)", PALE_C)],
-                "Corine Land Cover 2018 (100 m)")
-    categorical(ax[2], tfv_group[tfv], tfv_entries,
-                "BD Forêt vegetation type (TFV_G11)",
-                "photo-interpreted 2007-2018, polygons of 0.5 ha or more")
-    categorical(ax[3], ess_img, ess_entries,
-                "BD Forêt dominant species (ESSENCE)")
-    categorical(ax[4], fuel_img, fuel_entries, "Fuel class (25 m)",
-                "TFV_G11 x ESSENCE x Mediterranean zone")
+    layers = [
+        (clc.astype("float32"), [(n, c) for n, c, _ in CLC_GROUPS]
+         + [("No Corine data (sea, estuary)", PALE_C)],
+         "Corine Land Cover 2018 (100 m)", None,
+         ("No Corine data (sea, estuary)",)),
+        (tfv_group[tfv], tfv_entries, "BD Forêt vegetation type (TFV_G11)",
+         "photo-interpreted 2007-2018, polygons of 0.5 ha or more",
+         ("Not in BD Forêt",)),
+        (ess_img, ess_entries, "BD Forêt dominant species (ESSENCE)", None,
+         ("Not in BD Forêt",)),
+        (fuel_img, fuel_entries, "Fuel class (25 m)",
+         "TFV_G11 x ESSENCE x Mediterranean zone", ("Not fuel",)),
+    ]
+    for a, (img, entries, title, note, _) in zip(ax[1:], layers[:3]):
+        categorical(a, img, entries, title, note)
+    for a, (img, entries, title, note, clear) in zip(over, layers):
+        categorical(a, img, entries, f"Sentinel-2 + {title}",
+                    f"map at {OVERLAY_ALPHA:.0%} opacity; not drawn: "
+                    f"{clear[0][0].lower()}{clear[0][1:]}", base=s2, clear=clear)
+    img, entries, title, note, _ = layers[3]
+    categorical(ax[4], img, entries, title, note)
     categorical(ax[5], win.to_cell(cls_px), cls_entries,
                 "Fuel class of the fuel pixels (250 m)",
                 "MODIS pixels with one class on at least 75 %")
@@ -685,7 +707,7 @@ def cell_view(day, cell, grid, pixels, src):
                  f": MODIS composite {composite:%d %b} – {end:%d %b %Y}; "
                  f"{len(FIRES)} fire(s) that day; fuel pixels of the cell burnt "
                  f"since 2016: {len(burnt)}", color=INK, fontsize=14, x=.125, ha="left",
-                 y=.925)
+                 y=.915)
     out = PROCESSED / f"cell_pixels_{day:%Y-%m-%d}_{cell}.png"
     fig.savefig(out, bbox_inches="tight", facecolor="white")
     plt.close(fig)
