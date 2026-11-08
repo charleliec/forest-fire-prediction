@@ -2,7 +2,8 @@
 
 Each 25 km cell gets the mean of the SIM2 points it contains. Source:
 "Données changement climatique - SIM quotidienne", Météo-France, Licence
-Ouverte (https://www.data.gouv.fr/fr/datasets/donnees-changement-climatique-sim-quotidienne/).
+Ouverte (https://www.data.gouv.fr/fr/datasets/
+donnees-changement-climatique-sim-quotidienne/).
 
 Writes ``data/interim/weather_cell_day.parquet``.
 """

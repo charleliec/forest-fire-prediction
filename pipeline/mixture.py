@@ -369,12 +369,13 @@ def correct(dates, grid_cells):
                                      "ref_neighbours", "ref_national",
                                      "ref_none"])
     st.to_parquet(bv.WORK / "correction_stats.parquet", index=False)
+    ref = st[["ref_cell", "ref_neighbours", "ref_national",
+              "ref_none"]].sum()
     print(f"correction: {st['corrected'].sum() / st['usable'].sum():.1%} of "
           f"the usable fuel pixel values corrected, "
           f"{st['implausible'].sum() / st['usable'].sum():.3%} implausible "
           "(kept observed); references from the cell / neighbours / "
-          "national / none: "
-          f"{(st[['ref_cell', 'ref_neighbours', 'ref_national', 'ref_none']].sum() / st[['ref_cell', 'ref_neighbours', 'ref_national', 'ref_none']].sum().sum()).round(3).to_dict()}",
+          f"national / none: {(ref / ref.sum()).round(3).to_dict()}",
           flush=True)
 
 

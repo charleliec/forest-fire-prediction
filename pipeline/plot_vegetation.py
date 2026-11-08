@@ -451,8 +451,9 @@ def vegetation_series():
     ax.legend(frameon=False, fontsize=8, labelcolor=INK, ncol=2,
               loc="upper left")
     style_axes(ax)
-    fig.suptitle("NDVI and NBR class percentiles over time: weighted by usable fuel "
-                 "pixels, one point per 16-day composite", color=INK,
+    fig.suptitle("NDVI and NBR class percentiles over time: weighted by "
+                 "usable fuel pixels, one point per 16-day composite",
+                 color=INK,
                  fontsize=13, x=.02, ha="left")
     out = PROCESSED / "vegetation_series.png"
     fig.savefig(out, bbox_inches="tight", facecolor="white")
@@ -461,7 +462,7 @@ def vegetation_series():
     print(f"series -> {out}; July-August means:\n{july}")
 
 
-# --- fire rate per decile ------------------------------------------------------
+# --- fire rate per decile -------------------------------------------------
 
 def fire_rate(df):
     """Fire rate per decile, deciles over all rows (rows 1-2: dry places

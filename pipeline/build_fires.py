@@ -76,8 +76,8 @@ def main():
     fires["cell_id"] = fires["cell_id"].astype(int)
 
     INTERIM.mkdir(parents=True, exist_ok=True)
-    fires.drop(columns=["ix", "iy"]).to_parquet(INTERIM / "fires.parquet",
-                                                 index=False)
+    fires.drop(columns=["ix", "iy"]).to_parquet(
+        INTERIM / "fires.parquet", index=False)
     per_day = (fires.groupby(["cell_id", "date"])
                .agg(n_fires=("bdiff_id", "size"),
                     area_m2=("area_m2", "sum"),

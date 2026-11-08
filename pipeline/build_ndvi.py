@@ -13,7 +13,7 @@ Credentials (NASA Earthdata Login), never stored in the repository:
 ``~/.netrc`` entry for ``urs.earthdata.nasa.gov``.
 
     python pipeline/build_ndvi.py submit      # NDVI tasks -> tasks.json
-    python pipeline/build_ndvi.py submit-nbr  # NIR + MIR tasks -> tasks_nbr.json
+    python pipeline/build_ndvi.py submit-nbr  # NIR + MIR -> tasks_nbr.json
     python pipeline/build_ndvi.py status
     python pipeline/build_ndvi.py download    # resumable
 

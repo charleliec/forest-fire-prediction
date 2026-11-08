@@ -1,4 +1,5 @@
-"""MODIS rasters + BD Forêt fuel map -> vegetation features per (cell, composite).
+"""MODIS rasters + BD Forêt fuel map -> vegetation features per (cell,
+composite).
 
 Inputs:
 
@@ -27,10 +28,11 @@ Steps (each cached under ``data/interim/vegetation/``):
    each fuel pixel would have without the rest of the pixel (other fuel
    classes, fields, roads...), from local reference reflectances.
 3. Features. Burns are detected on the observed NBR series of each pixel
-   (burns); on the corrected values, the reference distribution of each class is the histogram of all the
-   usable values of its pixels over the reference composites (training
-   years only); each value becomes its percentile in that distribution,
-   and the percentiles are summarised per cell (features). A fuel pixel
+   (burns); on the corrected values, the reference distribution of each
+   class is the histogram of all the usable values of its pixels over the
+   reference composites (training years only); each value becomes its
+   percentile in that distribution, and the percentiles are summarised per
+   cell (features). A fuel pixel
    with no usable value in a composite (cloud, snow...) takes its value
    observed in the previous composite, if any.
 
@@ -87,9 +89,10 @@ BURN_DOY = (49, 273)
 # Snow. A pixel is snowy in a composite when its VI Quality has the snow /
 # ice bit or says cloudy (MODLAND: MODIS often takes snow for cloud), while
 # SIM2 has at least SNOW_DEPTH m of snow on average over its cell in the
-# composite (the snow / ice bit alone also flags summer clouds). For POST_SNOW composites after its last snowy one, a burn
-# candidate of the pixel can be flagged but not confirmed: after the melt,
-# flattened, still-brown vegetation looks burnt for a few weeks.
+# composite (the snow / ice bit alone also flags summer clouds). For
+# POST_SNOW composites after its last snowy one, a burn candidate of the
+# pixel can be flagged but not confirmed: after the melt, flattened,
+# still-brown vegetation looks burnt for a few weeks.
 SNOW_DEPTH = 0.01   # m
 POST_SNOW = 4
 BASELINE = 4        # usable composites in the NBR baseline of a pixel

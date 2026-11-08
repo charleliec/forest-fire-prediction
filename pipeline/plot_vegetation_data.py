@@ -182,7 +182,8 @@ def usable_figure(grid, day, dates, events):
     cmap = ListedColormap([c for _, c in STATUS])
     cmap.set_bad("white")
     ax.imshow(img, extent=(bounds[0], bounds[2], bounds[1], bounds[3]),
-              cmap=cmap, norm=BoundaryNorm(np.arange(-.5, len(STATUS)), len(STATUS)),
+              cmap=cmap,
+              norm=BoundaryNorm(np.arange(-.5, len(STATUS)), len(STATUS)),
               interpolation="nearest")
     for k in range(int((bounds[2] - bounds[0]) / CELL_SIZE) + 1):
         ax.axvline(bounds[0] + k * CELL_SIZE, color="white", lw=.6)
@@ -332,10 +333,10 @@ def raw_figure(grid, day, dates):
                               shrink=.7, pad=.02, aspect=35, extend="both")
             style_colorbar(cb, name)
     fig.suptitle(f"Raw MODIS values of the composite of "
-                 f"{composite:%d %B %Y} (16 days), every pixel, quality flags ignored (grey: "
-                 "no data; black square: the window below; circles: fires "
-                 f"of {day:%d %B %Y})", color=INK, fontsize=12, x=.02,
-                 ha="left")
+                 f"{composite:%d %B %Y} (16 days), every pixel, quality "
+                 "flags ignored (grey: no data; black square: the window "
+                 f"below; circles: fires of {day:%d %B %Y})", color=INK,
+                 fontsize=12, x=.02, ha="left")
     out = PROCESSED / "vegetation_raw.png"
     fig.savefig(out, bbox_inches="tight", facecolor="white")
     print(f"raw maps -> {out}")
@@ -389,7 +390,7 @@ def raw_series(dates, years=(2019, 2023)):
     print(f"raw series -> {out}")
 
 
-# --- mixture correction ---------------------------------------------------------
+# --- mixture correction ---------------------------------------------------
 
 def correction_figure(dates, years=(2019, 2023)):
     """Does the mixture correction remove the bias of the less pure fuel
@@ -547,7 +548,8 @@ def correction_figure(dates, years=(2019, 2023)):
 
     st = pd.read_parquet(bv.WORK / "correction_stats.parquet")
     fig.suptitle(f"Mixture correction of the fuel pixels, {years[0]}-"
-                 f"{years[1]}: {st['corrected'].sum() / st['usable'].sum():.0%}"
+                 f"{years[1]}: "
+                 f"{st['corrected'].sum() / st['usable'].sum():.0%}"
                  " of the values corrected, "
                  f"{st['implausible'].sum() / st['usable'].sum():.2%} "
                  "implausible (kept as observed)", color=INK, fontsize=13,

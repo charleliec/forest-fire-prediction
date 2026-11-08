@@ -103,7 +103,8 @@ TFV_GROUPS = [
      ("foret ouverte feuillus", "foret ouverte coniferes",
       "foret ouverte mixte")),
     ("Forest without trees (cut, burnt)", ORANGE,
-     ("foret fermee sans couvert arbore", "foret ouverte sans couvert arbore")),
+     ("foret fermee sans couvert arbore",
+      "foret ouverte sans couvert arbore")),
     ("Heath (lande)", PINK, ("lande",)),
     ("Herbaceous", VIOLET, ("formation herbacee",)),
     ("Poplar plantation, other", OTHER_C, ()),
@@ -687,7 +688,8 @@ def cell_view(day, cell, grid, pixels, src, place=None):
     for a, (img, entries, title, note, clear) in zip(over, layers):
         categorical(a, img, entries, f"Sentinel-2 + {title}",
                     f"map at {OVERLAY_ALPHA:.0%} opacity; not drawn: "
-                    f"{clear[0][0].lower()}{clear[0][1:]}", base=s2, clear=clear)
+                    f"{clear[0][0].lower()}{clear[0][1:]}", base=s2,
+                    clear=clear)
     img, entries, title, note, _ = layers[3]
     categorical(ax[4], img, entries, title, note)
     categorical(ax[5], win.to_cell(cls_px), cls_entries,
@@ -723,12 +725,13 @@ def cell_view(day, cell, grid, pixels, src, place=None):
                    fires=True)
     lon, lat = g.loc[cell, "lon"], g.loc[cell, "lat"]
     place = place or place_of(cell, grid)
-    fig.suptitle(f"{place.replace('-', ' ').title()}, cell {cell} ({lat:.2f}° N, {abs(lon):.2f}° "
+    fig.suptitle(f"{place.replace('-', ' ').title()}, cell {cell} "
+                 f"({lat:.2f}° N, {abs(lon):.2f}° "
                  f"{'E' if lon >= 0 else 'W'}) on {day:%d %B %Y}"
                  f": MODIS composite {composite:%d %b} – {end:%d %b %Y}; "
-                 f"{len(FIRES)} fire(s) that day; fuel pixels of the cell burnt "
-                 f"since 2016: {len(burnt)}", color=INK, fontsize=14, x=.125, ha="left",
-                 y=.915)
+                 f"{len(FIRES)} fire(s) that day; fuel pixels of the cell "
+                 f"burnt since 2016: {len(burnt)}", color=INK, fontsize=14,
+                 x=.125, ha="left", y=.915)
     out = PROCESSED / f"cell_pixels_{slug(place)}_{day:%Y-%m-%d}.png"
     fig.savefig(out, bbox_inches="tight", facecolor="white")
     plt.close(fig)

@@ -38,8 +38,8 @@ def capture(y_true, y_score, day, k=K):
         raise ValueError("no fire in the evaluated rows")
     pos = df["y"] == 1
     # Rows of the same day scored strictly higher, and equally.
-    n_greater = df.groupby("day")["s"].rank(method="min",
-                                             ascending=False) - 1
+    n_greater = df.groupby("day")["s"].rank(
+        method="min", ascending=False) - 1
     n_equal = df.groupby(["day", "s"])["s"].transform("size")
     share = ((k - n_greater) / n_equal).clip(0, 1)
     return float(share[pos].sum() / n_pos)
