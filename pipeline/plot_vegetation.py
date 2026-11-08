@@ -206,7 +206,7 @@ def vegetation_pixels(grid, df, day, half=3):
     inside = (i >= 0) & (i < size) & (j >= 0) & (j < size)
 
     ref = np.load(bv.WORK / "reference.npz")
-    ndvi, nbr, _ = bv.load(composite.to_pydatetime())
+    ndvi, nbr, _ = bv.load(composite.to_pydatetime(), corrected=True)
     cls = pixels["cls"].to_numpy()
     fig, axes = plt.subplots(1, 3, figsize=(19, 6.6), dpi=130,
                              gridspec_kw={"wspace": .05})

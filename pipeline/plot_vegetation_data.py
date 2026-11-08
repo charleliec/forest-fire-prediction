@@ -10,7 +10,11 @@
   1 km and the window at 250 m, every pixel (fuel or not), quality flags
   ignored;
 - ``vegetation_raw_series.png``: raw NDVI and NBR of the usable fuel pixels
-  of six classes, median and interquartile range per composite.
+  of six classes, median and interquartile range per composite;
+- ``vegetation_correction.png``: the mixture correction (mixture.py): the
+  bias of the less pure fuel pixels per month, observed and corrected, the
+  per-cell shift it causes in July-August, the size of the corrections, and
+  one pixel's series beside the local references.
 
     python pipeline/plot_vegetation_data.py [--seed 0]
 
@@ -32,8 +36,8 @@ from rasterio.warp import Resampling, reproject
 import build_vegetation as bv
 from common import CELL_SIZE, CRS_L93, INTERIM, PROCESSED
 from plot_map import INK, ramp, style_colorbar
-from plot_vegetation import (CATEGORICAL, FIRE_C, GRID, LABELS, NAN_C,
-                             NBR_C, NDVI_C, example_days, style_axes)
+from plot_vegetation import (CATEGORICAL, FIRE_C, GRID, LABELS, MUTED,
+                             NAN_C, NBR_C, NDVI_C, example_days, style_axes)
 
 RES = 250
 # Pixel status, in drawing order. Greys: never used; hues: fuel pixels.
@@ -399,6 +403,180 @@ def raw_series(dates, years=(2019, 2023)):
     print(f"raw series -> {out}")
 
 
+# --- mixture correction ---------------------------------------------------------
+
+def correction_figure(dates, years=(2019, 2023)):
+    """Does the mixture correction remove the bias of the less pure fuel
+    pixels, and are the corrected values plausible?"""
+    import mixture as mx
+
+    pixels = pd.read_parquet(bv.WORK / "fuel_pixels.parquet")
+    s = mx.static()
+    main_share = s["main"]
+    cls, cell = pixels["cls"].to_numpy(), pixels["cell_id"].to_numpy()
+    group = np.where(main_share >= .95, 1, np.where(main_share < .90, 0, -1))
+    key = cell.astype("int64") * 100 + cls
+    ref = np.load(bv.WORK / "reference.npz")
+    h = ref["ndvi"].astype("float64")
+    with np.errstate(invalid="ignore"):
+        table = (np.cumsum(h, 1) - h / 2) / h.sum(1, keepdims=True)
+
+    gaps, shifts, corr = [], [], []
+    for date in dates:
+        if not years[0] <= date.year <= years[1]:
+            continue
+        for name, corrected in (("observed", False), ("corrected", True)):
+            ndvi, nbr, _ = bv.load(date, corrected=corrected)
+            ok = (ndvi != bv.MISSING) & (group >= 0)
+            d = pd.DataFrame({"key": key[ok], "g": group[ok],
+                              "ndvi": ndvi[ok] * 1e-4, "nbr": nbr[ok] * 1e-4})
+            m = d.groupby(["key", "g"])[["ndvi", "nbr"]].agg(["mean", "size"])
+            m = m.unstack("g").dropna()
+            m = m[(m[("ndvi", "size", 0)] >= 10)
+                  & (m[("ndvi", "size", 1)] >= 10)]
+            gaps.append({"date": date, "version": name, **{
+                idx: (m[(idx, "mean", 0)] - m[(idx, "mean", 1)]).mean()
+                for idx in ("ndvi", "nbr")}})
+            if date.month in (7, 8):
+                ok = ndvi != bv.MISSING
+                p = np.full(len(ndvi), np.nan)
+                p[ok] = table[cls[ok], ndvi[ok].astype(int) + bv.OFFSET]
+                d = pd.DataFrame({"cell": cell, "p": p,
+                                  "pure": main_share >= .95}).dropna()
+                a = d.groupby("cell")["p"].agg(["mean", "size"])
+                b = d[d["pure"]].groupby("cell")["p"].agg(["mean", "size"])
+                ab = a.merge(b, left_index=True, right_index=True,
+                             suffixes=("", "_pure"))
+                ab = ab[(ab["size"] >= 10) & (ab["size_pure"] >= 10)]
+                shifts.append(pd.DataFrame({
+                    "version": name, "cell": ab.index.to_numpy(),
+                    "shift": (ab["mean"] - ab["mean_pure"]).to_numpy()}))
+            if corrected:
+                raw, _, _ = bv.load(date)
+                ok = (raw != bv.MISSING) & (main_share < .90)
+                corr.append(pd.DataFrame({
+                    "month": date.month,
+                    "delta": (ndvi[ok].astype(int) - raw[ok]) * 1e-4}))
+    gaps = pd.DataFrame(gaps)
+    shifts = pd.concat(shifts)
+    shifts = shifts.groupby(["version", "cell"])["shift"].mean().unstack(0)
+    corr = pd.concat(corr)
+
+    fig = plt.figure(figsize=(18, 11.5), dpi=130)
+    gs = fig.add_gridspec(2, 3, hspace=.38, wspace=.22)
+    before_c, after_c = "#898781", CATEGORICAL[0]
+    for k, idx in enumerate(("ndvi", "nbr")):
+        ax = fig.add_subplot(gs[0, k])
+        for version, color in (("observed", before_c),
+                               ("corrected", after_c)):
+            g = gaps[gaps["version"] == version]
+            month = g.groupby(g["date"].dt.month)[idx].mean()
+            ax.plot(month.index, month.values, color=color, lw=2,
+                    marker="o", markersize=5, label=version)
+        ax.axhline(0, color=MUTED, lw=.8)
+        ax.set_xticks(range(1, 13), list("JFMAMJJASOND"))
+        ax.set_title(f"{idx.upper()}: pixels 75-90 % pure minus pixels "
+                     "≥ 95 % pure\n(same cell and class, mean per month)",
+                     color=INK, fontsize=11, loc="left")
+        ax.set_ylabel(f"{idx.upper()} difference", color=INK, fontsize=9)
+        ax.legend(frameon=False, fontsize=8, labelcolor=INK)
+        style_axes(ax)
+
+    ax = fig.add_subplot(gs[0, 2])
+    land = pd.read_parquet(INTERIM / "landcover_cell.parquet").set_index(
+        "cell_id")["lc_crops"]
+    bins = np.linspace(-.12, .06, 37)
+    for version, color in (("observed", before_c), ("corrected", after_c)):
+        v = shifts[version].dropna()
+        r = np.corrcoef(v, land.reindex(v.index))[0, 1]
+        ax.hist(v, bins=bins, histtype="step", lw=2, color=color,
+                label=f"{version}: median {v.median():+.3f}, "
+                f"corr. with lc_crops {r:+.2f}")
+    ax.axvline(0, color=MUTED, lw=.8)
+    ax.set_title("Per cell, July-August: mean NDVI percentile of all fuel\n"
+                 "pixels minus that of the ≥ 95 % pure ones", color=INK,
+                 fontsize=11, loc="left")
+    ax.set_xlabel("shift of the cell's ndvi_pct", color=INK, fontsize=9)
+    ax.set_ylabel("cells", color=INK, fontsize=9)
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left")
+    style_axes(ax)
+
+    ax = fig.add_subplot(gs[1, 0])
+    q = corr.groupby("month")["delta"].quantile([.1, .25, .5, .75, .9])
+    q = q.unstack()
+    ax.fill_between(q.index, q[.1], q[.9], color=after_c, alpha=.12, lw=0,
+                    label="10-90 %")
+    ax.fill_between(q.index, q[.25], q[.75], color=after_c, alpha=.25,
+                    lw=0, label="25-75 %")
+    ax.plot(q.index, q[.5], color=after_c, lw=2, marker="o", markersize=5,
+            label="median")
+    ax.axhline(0, color=MUTED, lw=.8)
+    ax.set_xticks(range(1, 13), list("JFMAMJJASOND"))
+    ax.set_title("Correction of the NDVI (corrected − observed),\npixels "
+                 "under 90 % pure", color=INK, fontsize=11, loc="left")
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK)
+    style_axes(ax)
+
+    # Example: a deciduous pixel with the largest cropland share among the
+    # cells with references for both.
+    crops_kind = len(bv.CLASSES) + mx.TYPES.index("crops")
+    m = s["c_kind"] == crops_kind
+    crop_share = np.zeros(len(main_share))
+    crop_share[s["c_pos"][m]] = s["c_share"][m]
+    cand = np.flatnonzero((cls == bv.CODE["broadleaf_decid"])
+                          & (crop_share >= .15))
+    p = cand[np.argmax(crop_share[cand])] if len(cand) else 0
+    ci = s["fuel_ci"][p]
+    series = []
+    for date in dates:
+        if not 2021 <= date.year <= 2022:
+            continue
+        raw, _, _ = bv.load(date)
+        cor, _, _ = bv.load(date, corrected=True)
+        with np.load(mx.CORRECTED / f"{date:%Y-%m-%d}.npz") as z:
+            R = z["refs"][ci]
+        nd = (R[:, 1] - R[:, 0]) / (R[:, 1] + R[:, 0])
+        series.append((date, raw[p] * 1e-4 if raw[p] != bv.MISSING
+                       else np.nan, cor[p] * 1e-4 if cor[p] != bv.MISSING
+                       else np.nan, nd[cls[p] - 1], nd[crops_kind]))
+    series = pd.DataFrame(series, columns=["date", "observed", "corrected",
+                                           "class", "crops"])
+    ax = fig.add_subplot(gs[1, 1:])
+    for col, color, label in (
+            ("crops", CATEGORICAL[1], "cropland reference of the cell"),
+            ("class", CATEGORICAL[2], "deciduous reference of the cell "
+             "(≥ 95 % pure pixels)"),
+            ("observed", before_c, "pixel, observed"),
+            ("corrected", after_c, "pixel, corrected")):
+        ax.plot(series["date"], series[col], color=color, lw=2, marker="o",
+                markersize=4, label=label)
+    ax.set_ylabel("NDVI", color=INK, fontsize=9)
+    ax.set_title(f"Example: deciduous fuel pixel with {crop_share[p]:.0%} "
+                 f"cropland ({main_share[p]:.0%} deciduous), cell "
+                 f"{pixels['cell_id'].iloc[p]}, 2021-2022", color=INK,
+                 fontsize=11, loc="left")
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, ncol=2,
+              loc="lower left")
+    style_axes(ax)
+
+    st = pd.read_parquet(bv.WORK / "correction_stats.parquet")
+    fig.suptitle(f"Mixture correction of the fuel pixels, {years[0]}-"
+                 f"{years[1]}: {st['corrected'].sum() / st['usable'].sum():.0%}"
+                 " of the values corrected, "
+                 f"{st['implausible'].sum() / st['usable'].sum():.2%} "
+                 "implausible (kept as observed)", color=INK, fontsize=13,
+                 x=.02, ha="left")
+    out = PROCESSED / "vegetation_correction.png"
+    fig.savefig(out, bbox_inches="tight", facecolor="white")
+    month_gap = gaps.groupby([gaps["version"], gaps["date"].dt.month])[
+        ["ndvi", "nbr"]].mean().unstack(0).round(3)
+    print(f"correction -> {out}\ngap 75-90 % minus >= 95 % per month:\n"
+          f"{month_gap}\nper-cell July-August shift:\n"
+          f"{shifts.describe().round(3)}\ncorrelation with lc_crops: "
+          f"{shifts.corrwith(land.reindex(shifts.index)).round(2).to_dict()}"
+          f"\nexample pixel {p}: crop share {crop_share[p]:.2f}")
+
+
 def main(seed):
     grid = pd.read_parquet(INTERIM / "grid.parquet")
     df = pd.read_parquet(PROCESSED / "firegrid.parquet", columns=["date"])
@@ -408,6 +586,7 @@ def main(seed):
     raw_figure(grid, day, dates)
     raw_series(dates)
     usable_figure(grid, day, dates, events)
+    correction_figure(dates)
 
 
 if __name__ == "__main__":
