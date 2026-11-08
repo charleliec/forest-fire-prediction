@@ -23,9 +23,11 @@ By default the summer and winter example days of plot_vegetation.py, each
 with its cell with most fires among the cells with at least MIN_FUEL_PX fuel
 pixels (ties: most fuel pixels).
 
-    python pipeline/plot_cell_pixels.py [--seed 0] [--view 2023-08-10:749 ...]
+    python pipeline/plot_cell_pixels.py [--seed 0]
+        [--view 2024-08-05:803:landes-arcachon ...]
 
-Writes ``data/processed/cell_pixels_<day>_<cell>.png``; caches under
+Writes ``data/processed/cell_pixels_<place>_<day>.png`` (place: the name
+given in --view, else the commune nearest the cell centre); caches under
 ``data/interim/vegetation/cellview/`` (Sentinel-2 image, BD Forêt rasters).
 """
 
@@ -551,7 +553,22 @@ def percentile_rgba(status, pct, cmap):
     return rgba
 
 
-def cell_view(day, cell, grid, pixels, src):
+def place_of(cell, grid):
+    """Name of the commune nearest the cell centre (among the communes of
+    the fire records)."""
+    fires = pd.read_parquet(INTERIM / "fires.parquet",
+                            columns=["commune", "x", "y"])
+    x, y = grid.set_index("cell_id").loc[cell, ["x", "y"]]
+    near = ((fires["x"] - x) ** 2 + (fires["y"] - y) ** 2).idxmin()
+    return fires.loc[near, "commune"]
+
+
+def slug(name):
+    return "-".join("".join(ch if ch.isalnum() else " "
+                            for ch in norm(name)).split())
+
+
+def cell_view(day, cell, grid, pixels, src, place=None):
     global EXTENT, FIRES
     CACHE.mkdir(parents=True, exist_ok=True)
     dates = list(bv.composites())
@@ -702,13 +719,14 @@ def cell_view(day, cell, grid, pixels, src):
                    "black: not fuel; grey: fuel pixel left out (see status)",
                    fires=True)
     lon, lat = g.loc[cell, "lon"], g.loc[cell, "lat"]
-    fig.suptitle(f"Cell {cell} ({lat:.2f}° N, {abs(lon):.2f}° "
+    place = place or place_of(cell, grid)
+    fig.suptitle(f"{place.replace('-', ' ').title()}, cell {cell} ({lat:.2f}° N, {abs(lon):.2f}° "
                  f"{'E' if lon >= 0 else 'W'}) on {day:%d %B %Y}"
                  f": MODIS composite {composite:%d %b} – {end:%d %b %Y}; "
                  f"{len(FIRES)} fire(s) that day; fuel pixels of the cell burnt "
                  f"since 2016: {len(burnt)}", color=INK, fontsize=14, x=.125, ha="left",
                  y=.915)
-    out = PROCESSED / f"cell_pixels_{day:%Y-%m-%d}_{cell}.png"
+    out = PROCESSED / f"cell_pixels_{slug(place)}_{day:%Y-%m-%d}.png"
     fig.savefig(out, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"  -> {out}; cell fuel pixels by status: "
@@ -729,18 +747,19 @@ def main(seed, views):
             c["fuel_px"] = fuel_px.reindex(c.index).fillna(0)
             c = c[c["fuel_px"] >= MIN_FUEL_PX].sort_values(
                 ["fires", "fuel_px"], ascending=False)
-            views.append((day, int(c.index[0])))
+            views.append((day, int(c.index[0]), None))
     else:
-        views = [(pd.Timestamp(v.split(":")[0]), int(v.split(":")[1]))
-                 for v in views]
-    for day, cell in views:
-        cell_view(day, cell, grid, pixels, src)
+        views = [(pd.Timestamp(v.split(":")[0]), int(v.split(":")[1]),
+                  (v.split(":") + [None])[2]) for v in views]
+    for day, cell, place in views:
+        cell_view(day, cell, grid, pixels, src, place)
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--view", action="append", default=[],
-                   help="DAY:CELL, e.g. 2023-08-10:749 (repeatable)")
+                   help="DAY:CELL[:PLACE], e.g. 2024-08-05:803:"
+                   "landes-arcachon (repeatable)")
     a = p.parse_args()
     main(a.seed, a.view)
