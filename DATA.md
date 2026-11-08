@@ -495,6 +495,19 @@ every year while their NDVI stays high. A burn of late autumn or winter
 (pastoral burning in the Pyrenees...) is detected, and dated, at the first
 composite from 18 February where its scar still shows.
 
+**After snow.** When the snow melts, the flattened, still-brown vegetation
+underneath has a low NBR and NDVI for a few weeks, as if burnt, and the
+seasonal baseline does not catch it because the melt comes weeks earlier
+or later from one year to the next. A pixel is *snowy* in a composite when
+its VI Quality has the snow / ice bit, or says cloudy (MODIS often takes
+snow for cloud) while SIM2 has at least 1 cm of snow on average over its
+cell during the composite. In the 4 composites (64 days) after a pixel's
+last snowy one, a burn candidate of that pixel waits: it can be neither
+confirmed nor dismissed, and the values the pixel shows meanwhile stay out
+of its recent baselines. The first usable composite after that decides: a
+real scar is still there, while the after-melt browning is gone. Such a
+burn keeps its start; it is only known later.
+
 The seasonal baseline needs a year of data, and the rasters start in
 November 2014: burns are detected from February 2016 on. 0.27 is the usual
 lower bound of moderate burn severity for the NBR drop (Key & Benson,

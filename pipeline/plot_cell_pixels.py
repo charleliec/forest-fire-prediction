@@ -401,17 +401,20 @@ def burns_near(cell_ids, dates, pixels):
     detection depends on itself and the pixels of its cell)."""
     sub = np.flatnonzero(pixels["cell_id"].isin(cell_ids).to_numpy())
     ci = pd.Index(cell_ids).get_indexer(pixels["cell_id"].to_numpy()[sub])
-    orig = bv.load
+    orig, orig_snow = bv.load, bv.load_snow
 
     def load(date, corrected=False):
         ndvi, nbr, has = orig(date, corrected)
         return ndvi[sub], nbr[sub], has
 
-    bv.load = load
+    def load_snow(date):
+        return tuple(a[sub] for a in orig_snow(date))
+
+    bv.load, bv.load_snow = load, load_snow
     try:
-        candidates, events = bv.burns(dates, ci)
+        candidates, events = bv.burns(dates, ci, np.asarray(cell_ids))
     finally:
-        bv.load = orig
+        bv.load, bv.load_snow = orig, orig_snow
     candidates = {d: sub[c] for d, c in candidates.items()}
     events = events.assign(pos=sub[events["pos"].to_numpy()])
     return candidates, events

@@ -69,6 +69,7 @@ RASTERS = NDVI_DIR / "rasters"
 WORK = INTERIM / "vegetation"
 FUEL_CACHE = WORK / "fuel_dept"
 COMPOSITES = WORK / "composites"
+SNOW = WORK / "snow"
 SER_URL = "https://inventaire-forestier.ign.fr/IMG/zip/ser_l93.zip"
 SER_SHP = GEO_DIR / "ser" / "ser_l93.shp"
 MED_GRECO = ("J", "K")
@@ -83,6 +84,14 @@ DROP_NDVI = 1000    # NDVI drop (x 1e-4) a burn must come with
 # composite starting 30 Sep (31 Aug in leap years 29 Sep); with a low sun,
 # the NBR of mountain forests falls far below 0 every autumn and winter.
 BURN_DOY = (49, 273)
+# Snow. A pixel is snowy in a composite when its VI Quality has the snow /
+# ice bit, or says cloudy (MODLAND: MODIS often takes snow for cloud) while
+# SIM2 has at least SNOW_DEPTH m of snow on average over its cell in the
+# composite. For POST_SNOW composites after its last snowy one, a burn
+# candidate of the pixel can be flagged but not confirmed: after the melt,
+# flattened, still-brown vegetation looks burnt for a few weeks.
+SNOW_DEPTH = 0.01   # m
+POST_SNOW = 4
 BASELINE = 4        # usable composites in the NBR baseline of a pixel
 YEAR_COMPOSITES = 23  # MOD13Q1 composites per year (start days 1, 17...)
 BURNT_DAYS = {"burnt_1y": 365, "burnt_5y": 1826}
@@ -367,6 +376,53 @@ def extract(dates, pix, shape):
               "build_ndvi.py download is done", flush=True)
 
 
+def snow_one(args):
+    """VI Quality snow and cloudy flags of the fuel pixels, one composite."""
+    date, path, pix, shape = args
+    out = SNOW / f"{date:%Y-%m-%d}.npz"
+    if out.exists():
+        with np.load(out) as z:
+            if int(z["n"]) == len(pix) and int(z["checksum"]) == int(
+                    pix.sum()):
+                return
+    qa, nodata = read(path, pix, shape)
+    ok = qa != nodata
+    qa = qa.astype("uint32")
+    np.savez(out, snow=np.packbits(ok & ((qa >> 14) & 1 == 1)),
+             cloudy=np.packbits(ok & ((qa & 0b11) >= 0b10)), n=len(pix),
+             checksum=pix.sum())
+
+
+def extract_snow(dates, pix, shape):
+    SNOW.mkdir(parents=True, exist_ok=True)
+    with ProcessPoolExecutor(WORKERS) as pool:
+        list(pool.map(snow_one, [(d, layers["qa"], pix, shape)
+                                 for d, layers in dates.items()]))
+
+
+def load_snow(date):
+    """Snow and cloudy VI Quality flags of the fuel pixels."""
+    with np.load(SNOW / f"{date:%Y-%m-%d}.npz") as z:
+        n = int(z["n"])
+        return (np.unpackbits(z["snow"])[:n].astype(bool),
+                np.unpackbits(z["cloudy"])[:n].astype(bool))
+
+
+def cell_snow(dates, cells):
+    """SIM2 snow depth (m) per (composite, cell): the mean over the 16 days
+    of the composite of the cell's daily snow depth."""
+    w = pd.read_parquet(INTERIM / "weather_cell_day.parquet",
+                        columns=["cell_id", "date", "snow_depth"])
+    out = np.zeros((len(dates), len(cells)), dtype="float32")
+    cols = pd.Index(cells)
+    for t, date in enumerate(dates):
+        d = w[(w["date"] >= date) & (w["date"] < date + timedelta(
+            days=COMPOSITE_DAYS))]
+        m = d.groupby("cell_id")["snow_depth"].mean()
+        out[t] = m.reindex(cols).fillna(0).to_numpy()
+    return out
+
+
 def load(date, corrected=False):
     """NDVI, NBR of the fuel pixels (x 1e4, MISSING where unusable) and
     whether the NBR exists; ``corrected``: after the mixture correction
@@ -389,7 +445,7 @@ def cell_excess(drop, ci, nc):
     return drop - np.clip(np.nan_to_num(med), 0, None)[ci]
 
 
-def burns(dates, ci):
+def burns(dates, ci, cells):
     """Burn detection on the NBR and NDVI series of each fuel pixel.
 
     Baselines per pixel and composite:
@@ -428,9 +484,15 @@ def burns(dates, ci):
     BURN_DOY where its scar still shows. A pending candidate waits across
     the winter for its confirmation.
 
-    Returns the candidates of each composite (pixel positions) and the
-    burns, (pixel position, start of the burn composite, start of the
-    confirming composite).
+    After snow (snowy pixel, see POST_SNOW), a candidate waits until the
+    pixel's POST_SNOW composites after its last snowy one have passed: only
+    a composite past them can confirm it (or dismiss it), and the values
+    the pixel shows while it waits do not enter its recent baselines. The
+    browning after the melt is gone by then; a burn scar remains.
+
+    ``cells``: cell_id of each value of ``ci``. Returns the candidates of
+    each composite (pixel positions) and the burns, (pixel position, start
+    of the burn composite, start of the confirming composite).
     """
     n, nc = len(ci), ci.max() + 1
     buf = {k: np.full((BASELINE, n), np.nan, dtype="float32")
@@ -444,6 +506,8 @@ def burns(dates, ci):
     pend_t = np.zeros(n, dtype="int32")
     days = list(dates)
     candidates, events = {}, []
+    snow_depth = cell_snow(days, cells)
+    last_snow = np.full(n, -POST_SNOW - 1, dtype="int32")
 
     def push(mask, vals):
         for k, v in vals.items():
@@ -460,6 +524,8 @@ def burns(dates, ci):
     for t, date in enumerate(days):
         ndvi, nbr, has_nbr = load(date)
         past[t % len(past)] = nbr
+        snow, cloudy = load_snow(date)
+        last_snow[snow | (cloudy & (snow_depth[t][ci] >= SNOW_DEPTH))] = t
         if not has_nbr or not (BURN_DOY[0] <= date.timetuple().tm_yday
                                <= BURN_DOY[1]):
             candidates[date] = np.array([], dtype="int64")
@@ -479,20 +545,23 @@ def burns(dates, ci):
         context = cell_excess(base - v, ci, nc) - (base - v)
         drop = (below_season & (base - v + context >= DROP)
                 & (nbase - nv >= DROP_NDVI))
-        confirm = (pending & below_season
+        # Just after snow: a pending candidate waits (no confirmation, no
+        # dismissal, its values stay out of the baselines).
+        waiting = pending & (t - last_snow <= POST_SNOW)
+        confirm = (pending & ~waiting & below_season
                    & (pend["base"] - v + context >= DROP)
                    & (pend["nbase"] - nv >= DROP_NDVI))
         new = drop & ~pending
         for i in np.flatnonzero(confirm):
             events.append((i, days[pend_t[i]], date))
         candidates[date] = np.flatnonzero(drop | confirm | same_obs)
-        pending = (pending & ~ok) | new
+        pending = (pending & ~(ok & ~waiting)) | new
         for k, val in (("base", base), ("nbase", nbase), ("nbr", v),
                        ("ndvi", nv)):
             pend[k][new] = val[new]
         pend_t[new] = t
         vals = {"nbr": v, "ndvi": nv}
-        push(ok & ~new & ~confirm, vals)
+        push(ok & ~new & ~confirm & ~waiting, vals)
         for b in buf.values():
             b[:, confirm] = np.nan
         push(confirm, vals)
@@ -645,11 +714,12 @@ def main():
     pixels = fuel_map(grid)
     pix = pixels["pix"].to_numpy()
     extract(dates, pix, grid[2])
+    extract_snow(dates, pix, grid[2])
     import mixture  # step 2b; imports this module
     mixture.run(dates, pixels, grid)
-    ci = pd.Index(pd.read_parquet(INTERIM / "grid.parquet")["cell_id"]
-                  ).get_indexer(pixels["cell_id"])
-    candidates, events = burns(dates, ci)
+    cells = pd.read_parquet(INTERIM / "grid.parquet")["cell_id"].to_numpy()
+    ci = pd.Index(cells).get_indexer(pixels["cell_id"])
+    candidates, events = burns(dates, ci, cells)
     print(f"{len(events)} burnt fuel pixels detected "
           f"({len(events) * abs(grid[1].a * grid[1].e) / 1e6:.0f} km2); "
           "per year of the burn:")
