@@ -30,14 +30,14 @@ import numpy as np
 import pandas as pd
 import rasterio
 from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize
-from rasterio.transform import from_origin
-from rasterio.warp import Resampling, reproject
+from rasterio.warp import Resampling
 
 import build_vegetation as bv
-from common import CELL_SIZE, CRS_L93, INTERIM, PROCESSED
+from common import CELL_SIZE, INTERIM, PROCESSED
 from plot_map import INK, ramp, style_colorbar
 from plot_vegetation import (CATEGORICAL, FIRE_C, GRID, LABELS, MUTED,
-                             NAN_C, NBR_C, NDVI_C, example_days, style_axes)
+                             NAN_C, NBR_C, NDVI_C, example_days, style_axes,
+                             to_l93)
 
 RES = 250
 # Pixel status, in drawing order. Greys: never used; hues: fuel pixels.
@@ -75,20 +75,6 @@ def window(grid, day, half=3):
     x0 = (g.loc[top, "ix"] - half) * CELL_SIZE
     y0 = (g.loc[top, "iy"] - half) * CELL_SIZE
     return fires, (x0, y0, x0 + n * CELL_SIZE, y0 + n * CELL_SIZE)
-
-
-def to_l93(a, src, bounds, res, resampling=Resampling.nearest,
-           nodata=np.nan):
-    """Raster ``a`` on the MODIS grid -> Lambert-93 grid over ``bounds``."""
-    crs, transform, _ = src
-    xmin, ymin, xmax, ymax = bounds
-    out = np.full((int((ymax - ymin) / res), int((xmax - xmin) / res)),
-                  nodata, dtype="float32")
-    reproject(a.astype("float32"), out, src_transform=transform,
-              src_crs=crs, dst_transform=from_origin(xmin, ymax, res, res),
-              dst_crs=CRS_L93, resampling=resampling, src_nodata=np.nan,
-              dst_nodata=nodata)
-    return out
 
 
 def read(path):

@@ -5,9 +5,12 @@
 - ``vegetation_dates.png``: the vegetation features of every cell on two
   example days drawn at random (one in summer, one in late winter), with
   the fires of that day;
-- ``vegetation_pixels.png``: the 250 m fuel pixels behind those features,
-  NDVI and NBR class percentiles, around the cell with most fires on the
-  summer example day;
+- ``vegetation_pixels.png``, ``vegetation_pixels_winter.png``: every
+  250 m pixel around the cell with most fires on the summer / winter
+  example day: fuel class and NDVI / NBR class percentiles of the fuel
+  pixels (lighter when the value comes from the previous composite),
+  pixels that are not fuel (black), mixed-class pixels left out (blue)
+  and fuel pixels without a usable value (grey);
 - ``vegetation_series.png``: national mean of the features per composite,
   2015-2025, and their mean seasonal cycle;
 - ``vegetation_fire_rate.png``: share of (cell, day) rows with a fire per
@@ -25,8 +28,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.collections import PolyCollection
-from matplotlib.colors import ListedColormap, Normalize, TwoSlopeNorm
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize, TwoSlopeNorm, to_rgba
 from pyproj import Transformer
+from rasterio.transform import from_origin
+from rasterio.warp import Resampling, reproject
 
 import build_vegetation as bv
 from common import CELL_SIZE, CRS_L93, INTERIM, PROCESSED, TEST_YEARS
@@ -180,78 +186,163 @@ def vegetation_dates(grid, df, days):
     print(f"example days {[f'{d:%Y-%m-%d}' for d in days]} -> {out}")
 
 
-def vegetation_pixels(grid, df, day, half=3):
-    """Pixel percentiles in the (2 half + 1)^2 cells around the cell with
-    most fires of ``day``."""
+def to_l93(a, src, bounds, res, resampling=Resampling.nearest,
+           nodata=np.nan):
+    """Raster ``a`` on the MODIS grid -> Lambert-93 grid over ``bounds``."""
+    crs, transform, _ = src
+    xmin, ymin, xmax, ymax = bounds
+    out = np.full((int((ymax - ymin) / res), int((xmax - xmin) / res)),
+                  nodata, dtype="float32")
+    reproject(a.astype("float32"), out, src_transform=transform,
+              src_crs=crs, dst_transform=from_origin(xmin, ymax, res, res),
+              dst_crs=CRS_L93, resampling=resampling, src_nodata=np.nan,
+              dst_nodata=nodata)
+    return out
+
+
+# Status of a MODIS pixel in the pixel view.
+NOT_FUEL, MIXED, NO_VALUE, OBSERVED, PREVIOUS = range(5)
+NOT_FUEL_C = "#000000"
+# Blue marks the mixed pixels (far from the yellow-brown percentile scale);
+# the class panel never uses it.
+MIXED_C = CATEGORICAL[0]
+CLASS_C = CATEGORICAL[1:6]
+
+
+def pixel_status(composite, src):
+    """Status (NOT_FUEL...PREVIOUS) of every MODIS pixel on the MODIS grid,
+    the corrected NDVI / NBR the features use for the fuel pixels (observed,
+    or carried over from the previous composite), and the fuel pixels."""
+    _, transform, shape = src
+    pixels = pd.read_parquet(bv.WORK / "fuel_pixels.parquet")
+    pix = pixels["pix"].to_numpy()
+    counts = pd.concat([pd.read_parquet(f) for f in
+                        bv.FUEL_CACHE.glob("*.parquet")])
+    counts = counts.groupby(["pix", "cls"])["n"].sum()
+    full = abs(transform.a * transform.e) / bv.RES ** 2
+    fuel = counts.groupby("pix").sum() / full
+    top = counts.groupby("pix").max() / full
+    status = np.full(shape[0] * shape[1], NOT_FUEL, dtype="float32")
+    status[fuel.index[(fuel >= bv.PURITY) & (top < bv.PURITY)]] = MIXED
+
+    dates = list(bv.composites())
+    prev = dates[dates.index(composite) - 1]
+    events = pd.read_parquet(bv.WORK / "burns.parquet")
+
+    def burnt(date):
+        end = date + pd.Timedelta(days=bv.COMPOSITE_DAYS - 1)
+        e = events[(events["known_start"] <= date) & (
+            events["burn_start"] > end - pd.Timedelta(days=1826))]
+        out = np.zeros(len(pix), dtype=bool)
+        out[e["pos"].to_numpy()] = True
+        return out
+
+    ndvi, nbr, _ = bv.load(composite, corrected=True)
+    p_ndvi, p_nbr, _ = bv.load(prev, corrected=True)
+    excl = burnt(composite)
+    observed = (ndvi != bv.MISSING) & ~excl
+    previous = ((ndvi == bv.MISSING) & ~excl & (p_ndvi != bv.MISSING)
+                & ~burnt(prev))
+    status[pix] = NO_VALUE
+    status[pix[observed]] = OBSERVED
+    status[pix[previous]] = PREVIOUS
+    values = {name: np.where(observed, v, np.where(previous, pv, bv.MISSING))
+              for name, v, pv in (("ndvi", ndvi, p_ndvi),
+                                  ("nbr", nbr, p_nbr))}
+    return status.reshape(shape), values, pixels
+
+
+def compose(status, value, cmap, norm):
+    """RGBA image: black not fuel, violet mixed, grey no value, percentile
+    colours, lighter when carried over from the previous composite."""
+    rgba = np.zeros(status.shape + (4,))
+    rgba[:] = to_rgba(NOT_FUEL_C)
+    rgba[status == MIXED] = to_rgba(MIXED_C)
+    rgba[status == NO_VALUE] = to_rgba(NAN_C)
+    used = (status == OBSERVED) | (status == PREVIOUS)
+    col = cmap(norm(np.nan_to_num(value)))
+    rgba[used] = col[used]
+    light = status == PREVIOUS
+    rgba[light, :3] = .45 * col[light, :3] + .55
+    return rgba
+
+
+def vegetation_pixels(grid, df, day, out_name="vegetation_pixels.png",
+                      half=3):
+    """Every MODIS pixel in the (2 half + 1)^2 cells around the cell with
+    most fires of ``day``: fuel class and NDVI / NBR class percentiles of
+    the fuel pixels (as the features use them), the other pixels by
+    status."""
     d = df[df["date"] == day]
-    composite = day - pd.Timedelta(days=int(d["vi_age"].iloc[0]) + 15)
+    composite = (day - pd.Timedelta(days=int(d["vi_age"].iloc[0]) + 15)
+                 ).to_pydatetime()
     fires = pd.read_parquet(INTERIM / "fires.parquet")
     fires = fires[fires["date"] == day]
     top = fires["cell_id"].value_counts().index[0]
     g = grid.set_index("cell_id")
-    ix0, iy0 = g.loc[top, "ix"] - half, g.loc[top, "iy"] - half
     n = 2 * half + 1
-    x0, y0 = ix0 * CELL_SIZE, iy0 * CELL_SIZE
+    x0 = (g.loc[top, "ix"] - half) * CELL_SIZE
+    y0 = (g.loc[top, "iy"] - half) * CELL_SIZE
+    bounds = (x0, y0, x0 + n * CELL_SIZE, y0 + n * CELL_SIZE)
+    src = bv.modis_grid()
+    shape = src[2]
 
-    pixels = pd.read_parquet(bv.WORK / "fuel_pixels.parquet")
-    crs, transform, shape = bv.modis_grid()
-    rows, cols = np.divmod(pixels["pix"].to_numpy(), shape[1])
-    xs, ys = transform * (cols + .5, rows + .5)
-    x, y = Transformer.from_crs(crs, CRS_L93, always_xy=True).transform(
-        xs, ys)
-    res = 250
-    size = n * CELL_SIZE // res
-    i = ((y0 + n * CELL_SIZE - y) // res).astype(int)
-    j = ((x - x0) // res).astype(int)
-    inside = (i >= 0) & (i < size) & (j >= 0) & (j < size)
-
+    status, values, pixels = pixel_status(composite, src)
+    pix, cls = pixels["pix"].to_numpy(), pixels["cls"].to_numpy()
+    st = to_l93(status, src, bounds, 250)
     ref = np.load(bv.WORK / "reference.npz")
-    ndvi, nbr, _ = bv.load(composite.to_pydatetime(), corrected=True)
-    cls = pixels["cls"].to_numpy()
-    fig, axes = plt.subplots(1, 3, figsize=(19, 6.6), dpi=130,
-                             gridspec_kw={"wspace": .05})
-    images = {}
-    for name, v in (("ndvi", ndvi), ("nbr", nbr)):
+    pct = {}
+    for name in ("ndvi", "nbr"):
         h = ref[name].astype("float64")
         with np.errstate(invalid="ignore"):  # class 0 (not fuel) is empty
             table = (np.cumsum(h, axis=1) - h / 2) / h.sum(axis=1,
                                                            keepdims=True)
-        ok = inside & (v != bv.MISSING)
-        img = np.full((size, size), np.nan)
-        img[i[ok], j[ok]] = table[cls[ok], v[ok].astype(int) + bv.OFFSET]
-        images[name] = img
-    # Classes of the window by pixel count; the 8th and next fold in Other.
-    counts = pd.Series(cls[inside]).value_counts()
-    shown = list(counts.index[:len(CATEGORICAL)])
-    slot = {c: k for k, c in enumerate(shown)}
-    cls_img = np.full((size, size), np.nan)
-    cls_img[i[inside], j[inside]] = [slot.get(c, len(shown))
-                                     for c in cls[inside]]
+        v = values[name]
+        a = np.full(shape[0] * shape[1], np.nan, dtype="float32")
+        ok = v != bv.MISSING
+        a[pix[ok]] = table[cls[ok], v[ok].astype(int) + bv.OFFSET]
+        pct[name] = to_l93(a.reshape(shape), src, bounds, 250)
 
-    extent = (x0, x0 + n * CELL_SIZE, y0, y0 + n * CELL_SIZE)
-    palette = CATEGORICAL[:len(shown)] + [OTHER_C]
-    panels = [
-        (cls_img, ListedColormap(palette), Normalize(-.5, len(shown) + .5),
-         "Fuel class of each fuel pixel"),
-        (images["ndvi"], DRY, Normalize(0, 1), "NDVI class percentile"),
-        (images["nbr"], DRY, Normalize(0, 1), "NBR class percentile"),
-    ]
-    for ax, (img, cmap, norm, title) in zip(axes, panels):
-        cmap = cmap.copy()
-        cmap.set_bad(NAN_C)
-        im = ax.imshow(img, extent=extent, cmap=cmap, norm=norm,
-                       interpolation="nearest")
+    # Fuel classes of the window by pixel count: 5 colours, then Other.
+    a = np.full(shape[0] * shape[1], np.nan, dtype="float32")
+    a[pix] = cls
+    cls_img = to_l93(a.reshape(shape), src, bounds, 250)
+    fuel = ~np.isnan(cls_img)
+    counts = pd.Series(cls_img[fuel].astype(int)).value_counts()
+    shown = list(counts.index[:len(CLASS_C)])
+    palette = CLASS_C[:len(shown)] + [OTHER_C]
+    slot = np.full(len(bv.CLASSES) + 1, len(shown))
+    slot[shown] = range(len(shown))
+    cls_rgba = np.zeros(st.shape + (4,))
+    cls_rgba[:] = to_rgba(NOT_FUEL_C)
+    cls_rgba[st == MIXED] = to_rgba(MIXED_C)
+    lut = np.array([to_rgba(c) for c in palette])
+    cls_rgba[fuel] = lut[slot[cls_img[fuel].astype(int)]]
+
+    extent = (bounds[0], bounds[2], bounds[1], bounds[3])
+    fig, axes = plt.subplots(1, 3, figsize=(19, 7.4), dpi=130,
+                             gridspec_kw={"wspace": .05})
+    panels = [(cls_rgba, "Fuel class of each fuel pixel", None),
+              (compose(st, pct["ndvi"], DRY, Normalize(0, 1)),
+               "NDVI class percentile", DRY),
+              (compose(st, pct["nbr"], DRY, Normalize(0, 1)),
+               "NBR class percentile", DRY)]
+    for ax, (img, title, cmap) in zip(axes, panels):
+        ax.imshow(img, extent=extent, interpolation="nearest")
         for k in range(n + 1):
             ax.axvline(x0 + k * CELL_SIZE, color=CELL_EDGE, lw=.6)
             ax.axhline(y0 + k * CELL_SIZE, color=CELL_EDGE, lw=.6)
-        ax.scatter(fires["x"], fires["y"], s=22, facecolor="none",
-                   edgecolor=FIRE_C, linewidths=1.2, zorder=3)
+        # White rings outlined in black: visible on any background.
+        ax.scatter(fires["x"], fires["y"], s=30, facecolor="none",
+                   edgecolor="black", linewidths=2.6, zorder=3)
+        ax.scatter(fires["x"], fires["y"], s=30, facecolor="none",
+                   edgecolor="white", linewidths=1.2, zorder=4)
         ax.set_xlim(extent[:2])
         ax.set_ylim(extent[2:])
         ax.set_aspect("equal")
         ax.set_axis_off()
         ax.set_title(title, color=INK, fontsize=11, loc="left")
-        if title.startswith("Fuel"):
+        if cmap is None:
             handles = [plt.Rectangle((0, 0), 1, 1, color=palette[k],
                                      label=LABELS[bv.CLASSES[c - 1]])
                        for k, c in enumerate(shown)]
@@ -262,17 +353,33 @@ def vegetation_pixels(grid, df, day, half=3):
                       bbox_to_anchor=(0, -.01), ncol=2, frameon=False,
                       fontsize=8, labelcolor=INK)
         else:
-            cb = fig.colorbar(im, cax=ax.inset_axes([.1, -.07, .8, .035]),
+            cb = fig.colorbar(ScalarMappable(Normalize(0, 1), cmap),
+                              cax=ax.inset_axes([.1, -.07, .8, .035]),
                               orientation="horizontal")
-            style_colorbar(cb, "0 = lowest value of the class")
-    fig.suptitle(f"250 m fuel pixels around the cell with most fires on "
-                 f"{day:%d %B %Y} (composite of {composite:%d %b}; circles: "
-                 f"fires of the day at their commune centroid; grid: 25 km "
-                 "cells; grey: not fuel, or not usable)", color=INK,
-                 fontsize=12, x=.02, ha="left")
-    out = PROCESSED / "vegetation_pixels.png"
+            style_colorbar(cb, "0 = lowest value of the class (lighter: "
+                           "value of the previous composite)")
+    keys = [(NOT_FUEL_C, "Not fuel (under 75 % fuel, no fuel, water)"),
+            (MIXED_C, "At least 75 % fuel but no class at 75 %: excluded"),
+            (NAN_C, "Fuel pixel without a usable value (cloudy in both "
+             "composites, or recently burnt)")]
+    fig.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=c, label=t)
+                        for c, t in keys],
+               loc="upper right", bbox_to_anchor=(.9, .04), ncol=1,
+               frameon=False, fontsize=9, labelcolor=INK)
+    win = st[~np.isnan(st)].astype(int)
+    used = np.isin(win, [OBSERVED, PREVIOUS]).sum()
+    fig.suptitle(f"250 m pixels around the cell with most fires on "
+                 f"{day:%d %B %Y} (composite of {composite:%d %b}; "
+                 "circles: fires of the day at their commune centroid; grid: "
+                 f"25 km cells)\nFuel pixels used: {used:,}, of which "
+                 f"{(win == PREVIOUS).sum():,} from the previous composite;"
+                 f" mixed-class pixels excluded: {(win == MIXED).sum():,}",
+                 color=INK, fontsize=12, x=.02, ha="left")
+    out = PROCESSED / out_name
     fig.savefig(out, bbox_inches="tight", facecolor="white")
-    print(f"pixels around cell {top} on {day:%Y-%m-%d} -> {out}")
+    names = ["not fuel", "mixed", "no value", "observed", "previous"]
+    print(f"pixels around cell {top} on {day:%Y-%m-%d} -> {out}; window: "
+          f"{dict(zip(names, np.bincount(win, minlength=5).tolist()))}")
 
 
 # --- national series ---------------------------------------------------------
@@ -465,6 +572,7 @@ def main(seed):
     fuel_maps(grid)
     vegetation_dates(grid, df, days)
     vegetation_pixels(grid, df, days[0])
+    vegetation_pixels(grid, df, days[1], "vegetation_pixels_winter.png")
     vegetation_series()
     fire_rate(df)
     burns_map(grid)
