@@ -18,7 +18,7 @@ WEATHER = ["t_mean", "t_min", "t_max", "rain", "snow", "wind", "rh", "q",
 # [0, 1] (dry_gap in [-1, 1]), then the integer columns.
 VEGETATION = ["ndvi_pct", "ndvi_pct_p10", "ndvi_extreme", "nbr_pct",
               "nbr_pct_p10", "nbr_extreme", "dry_gap", "burnt_1y",
-              "burnt_5y", "vi_valid_share"]
+              "burnt_5y", "vi_valid_share", "vi_prev_share"]
 # Static per-cell features (constant over days).
 ROADS = ["road_km", "motorway_km", "road_traffic", "road_dist"]
 POPULATION = ["pop_density", "inhabited_share", "sparse_share"]

@@ -176,15 +176,18 @@ polygons of that class: [Fuel classes](#fuel-classes).
 
 Computed on the cell's *usable* *fuel pixels* only. A *class percentile*
 compares a pixel with every state its fuel class takes over the training
-years: 0 = the driest, 1 = the greenest. Formulas:
-[Vegetation columns](#vegetation-columns).
+years, all seasons together: 0 = the lowest value seen for the class, 1 =
+the highest. For most classes the lowest values come in late winter
+(leafless or dormant vegetation), not in summer: read them with the date.
+Formulas: [Vegetation columns](#vegetation-columns).
 
 | Column | Description |
 |---|---|
 | `vi_px` | Number of usable fuel pixels behind the vegetation features of the row (they are NaN below 10) |
-| `vi_valid_share` | `vi_px` / `fuel_px`: share of the fuel pixels usable in that composite (not cloudy, snowy, of poor quality or recently burnt) |
+| `vi_valid_share` | `vi_px` / `fuel_px`: share of the fuel pixels with a usable value, in that composite or the previous one (not cloudy, snowy, of poor quality or recently burnt) |
+| `vi_prev_share` | Share of the `vi_px` pixels whose value comes from the previous composite (16 days earlier), because it had no usable value in this one (cloud, snow...) |
 | `ndvi_pct` | Mean NDVI (greenness) class percentile of the usable fuel pixels |
-| `ndvi_pct_p10` | 10th percentile of those pixel percentiles: the driest tenth of the cell's fuel |
+| `ndvi_pct_p10` | 10th percentile of those pixel percentiles: the lowest tenth of the cell's fuel |
 | `ndvi_extreme` | Share of the usable fuel pixels with an NDVI percentile < 0.1 |
 | `nbr_pct` | Mean NBR (water content) class percentile of the usable fuel pixels |
 | `nbr_pct_p10` | 10th percentile of those pixel percentiles |
@@ -194,7 +197,8 @@ years: 0 = the driest, 1 = the greenest. Formulas:
 | `burnt_5y` | Same over 5 years |
 | `vi_age` | Days from the last day of the composite to the row's day (1 to 16) |
 
-`vi_px`, `vi_valid_share`, `vi_age`, `fuel_px` and `fuel_pure_share` are
+`vi_px`, `vi_valid_share`, `vi_prev_share`, `vi_age`, `fuel_px` and
+`fuel_pure_share` are
 not meant as predictors (nothing forbids it): they tell how much data the
 vegetation features rest on.
 
@@ -343,6 +347,14 @@ A fuel pixel is **usable** in a composite when:
    the composite's last day (see [Burn detection](#burn-detection)): burn
    scars would otherwise read as extreme drought.
 
+A fuel pixel that fails 1 or 2 in a composite (cloud, snow, poor quality,
+missing value), but not 3, takes the value it had in the **previous
+composite** (16 days earlier), if it was usable there: it then counts as
+usable, and `vi_prev_share` counts it. Only values observed in the previous
+composite carry over, so a value is never used more than 16 days after its
+own composite. The reference distributions and the burn detection use
+observed values only.
+
 The NDVI and NBR features of a composite use the same usable pixels.
 
 ### Class percentiles
@@ -353,7 +365,8 @@ distribution** is the set of all the values of the usable pixels of class
 the training years 2015-2017 and 2019-2024 (the test years 2018 and 2025
 are never used). It pools the pixels of the class all over France and all
 the composites of the year, so it spans every state the class goes
-through, from its driest summer to its greenest spring.
+through, from its leafless or dormant winter and its driest summer to its
+greenest spring.
 
 The **class percentile** of a usable pixel *p* of class *c* in a
 composite, of value *v* (NDVI or NBR, in units of 0.0001), is its mid-rank
@@ -365,13 +378,20 @@ pct(p) = ( #{reference values of c < v} + ½ · #{reference values of c = v} )
 ```
 
 pct = 0.1 means that 10 % of all the observations of that vegetation class
-were drier (lower). The percentile is relative to the class, not to the
-pixel's own history: a pixel that is drier than the rest of its class every
-summer (south-facing slope, shallow soil, hotter region) reads low every
-summer, and a class whose index barely moves (pines) gets percentiles as
-spread as one whose index swings (deciduous oaks). Dormant vegetation
-(leafless broadleaves, cured grass) is the driest state of most classes:
-percentiles are low in winter.
+were lower (less green for the NDVI, less leaf water for the NBR). The
+percentile is relative to the class, not to the pixel's own history: a
+pixel that is drier than the rest of its class every summer (south-facing
+slope, shallow soil, hotter region) reads low every summer, and a class
+whose index barely moves (pines) gets percentiles as spread as one whose
+index swings (deciduous oaks).
+
+The reference mixes all seasons, so the percentile follows the yearly
+cycle of each class: leaf fall, cured grass and the low winter sun give
+most classes their lowest values in February-March, and their highest in
+May-June (deciduous broadleaves: about 0.15 in February-March, 0.70 in
+July-August). Only the Mediterranean classes (Aleppo pine, Mediterranean
+heath) reach their lowest values in summer. A low percentile thus means
+"dry" in summer but "leafless" in winter: the date tells which.
 
 ### Burn detection
 
@@ -419,8 +439,10 @@ or a storm can be detected as a burn: all remove fuel.
 ### Vegetation columns
 
 For a cell *i* and the composite *t* of the row: *F* = the fuel pixels of
-*i*; *U* = the pixels of *F* usable in *t*; pct = class percentiles. The
-columns marked (NaN < 10) are NaN when |*U*| < 10.
+*i*; *U* = the pixels of *F* usable in *t* (with their value of *t*, or of
+the previous composite, see [Usable pixels](#usable-pixels)); *P* = the
+pixels of *U* whose value comes from the previous composite; pct = class
+percentiles. The columns marked (NaN < 10) are NaN when |*U*| < 10.
 
 | Column | Definition |
 |---|---|
@@ -428,6 +450,7 @@ columns marked (NaN < 10) are NaN when |*U*| < 10.
 | `fuel_pure_share` | Area of the 25 m fuel squares (any class) lying in the fuel pixels of *i*, divided by the area of all the 25 m fuel squares lying in MODIS pixels whose centre is in *i* (NaN if that area is 0) |
 | `vi_px` | \|*U*\| |
 | `vi_valid_share` | \|*U*\| / \|*F*\|; 0 if \|*F*\| = 0 |
+| `vi_prev_share` | \|*P*\| / \|*U*\|; 0 if \|*U*\| = 0 |
 | `ndvi_pct` | Mean of the NDVI pct of the pixels of *U* (NaN < 10) |
 | `ndvi_pct_p10` | 10th percentile (linear interpolation) of the NDVI pct of the pixels of *U* (NaN < 10) |
 | `ndvi_extreme` | Share of the pixels of *U* with NDVI pct < 0.1 (NaN < 10) |

@@ -27,7 +27,9 @@ Steps (each cached under ``data/interim/vegetation/``):
    the reference distribution of each class is the histogram of all the
    usable values of its pixels over the reference composites (training
    years only); each value becomes its percentile in that distribution,
-   and the percentiles are summarised per cell (features).
+   and the percentiles are summarised per cell (features). A fuel pixel
+   with no usable value in a composite (cloud, snow...) takes its value
+   observed in the previous composite, if any.
 
     python pipeline/build_vegetation.py
 
@@ -104,7 +106,7 @@ LAYERS = {"NDVI": "ndvi", "VI_Quality": "qa", "NIR_reflectance": "nir",
           "MIR_reflectance": "mir"}
 DYNAMIC = ["ndvi_pct", "ndvi_pct_p10", "ndvi_extreme", "nbr_pct",
            "nbr_pct_p10", "nbr_extreme", "dry_gap", *BURNT_DAYS, "vi_px",
-           "vi_valid_share"]
+           "vi_valid_share", "vi_prev_share"]
 REF_YEARS = [y for y in range(FIRST_YEAR, LAST_YEAR + 1)
              if y not in TEST_YEARS]
 
@@ -565,13 +567,29 @@ def features(dates, pixels, tables, candidates, events):
     n = len(cls)
     fuel_px = np.bincount(ci, minlength=nc)
     parts = []
+    prev = None  # (observed, ndvi, nbr) of the previous composite
     for date in dates:
         ndvi, nbr, has_nbr = load(date)
-        use = (ndvi != MISSING) & ~excluded(date, candidates, events, n)
+        excl = excluded(date, candidates, events, n)
+        observed = (ndvi != MISSING) & ~excl
+        # No usable value (cloud, snow, quality, missing band): the value
+        # observed in the previous composite, if any. Burnt pixels stay out.
+        current = (observed, ndvi, nbr)
+        from_prev = np.zeros(n, dtype=bool)
+        if prev is not None:
+            from_prev = (ndvi == MISSING) & ~excl & prev[0]
+            ndvi = np.where(from_prev, prev[1], ndvi)
+            nbr = np.where(from_prev, prev[2], nbr)
+        # Only observed values carry over: never twice in a row.
+        prev = current
+        use = observed | from_prev
         vi_px = np.bincount(ci[use], minlength=nc)
         row = {"vi_px": vi_px}
         with np.errstate(invalid="ignore", divide="ignore"):
             row["vi_valid_share"] = np.where(fuel_px > 0, vi_px / fuel_px, 0.)
+            row["vi_prev_share"] = np.where(
+                vi_px > 0, np.bincount(ci[from_prev], minlength=nc) / vi_px,
+                0.)
             for name, v in (("ndvi", ndvi), ("nbr", nbr)):
                 if name == "nbr" and not has_nbr:
                     for s in ("pct", "pct_p10", "extreme"):
