@@ -23,8 +23,11 @@ Steps (each cached under ``data/interim/vegetation/``):
 2. Extraction. For every composite, the NDVI and the NBR = (NIR - MIR) /
    (NIR + MIR) of the fuel pixels, set missing where the VI Quality flags
    are bad (quality_ok) or a layer has no data.
-3. Features. Burns are detected on the NBR series of each pixel (burns);
-   the reference distribution of each class is the histogram of all the
+2b. Mixture correction (mixture.py): the NDVI and NBR the main class of
+   each fuel pixel would have without the rest of the pixel (other fuel
+   classes, fields, roads...), from local reference reflectances.
+3. Features. Burns are detected on the observed NBR series of each pixel
+   (burns); on the corrected values, the reference distribution of each class is the histogram of all the
    usable values of its pixels over the reference composites (training
    years only); each value becomes its percentile in that distribution,
    and the percentiles are summarised per cell (features). A fuel pixel
@@ -364,9 +367,16 @@ def extract(dates, pix, shape):
               "build_ndvi.py download is done", flush=True)
 
 
-def load(date):
+def load(date, corrected=False):
+    """NDVI, NBR of the fuel pixels (x 1e4, MISSING where unusable) and
+    whether the NBR exists; ``corrected``: after the mixture correction
+    (mixture.py), else as observed."""
     with np.load(COMPOSITES / f"{date:%Y-%m-%d}.npz") as z:
-        return z["ndvi"], z["nbr"], bool(z["has_nbr"])
+        ndvi, nbr, has_nbr = z["ndvi"], z["nbr"], bool(z["has_nbr"])
+    if corrected:
+        with np.load(WORK / "corrected" / f"{date:%Y-%m-%d}.npz") as z:
+            ndvi, nbr = z["ndvi"], z["nbr"]
+    return ndvi, nbr, has_nbr
 
 
 # --- 3. features ---------------------------------------------------------
@@ -517,7 +527,7 @@ def reference(dates, cls, candidates, events):
     for date in dates:
         if not is_reference(date):
             continue
-        ndvi, nbr, _ = load(date)
+        ndvi, nbr, _ = load(date, corrected=True)
         keep = ~excluded(date, candidates, events, n)
         for name, v in (("ndvi", ndvi), ("nbr", nbr)):
             m = keep & (v != MISSING)
@@ -569,7 +579,7 @@ def features(dates, pixels, tables, candidates, events):
     parts = []
     prev = None  # (observed, ndvi, nbr) of the previous composite
     for date in dates:
-        ndvi, nbr, has_nbr = load(date)
+        ndvi, nbr, has_nbr = load(date, corrected=True)
         excl = excluded(date, candidates, events, n)
         observed = (ndvi != MISSING) & ~excl
         # No usable value (cloud, snow, quality, missing band): the value
@@ -635,6 +645,8 @@ def main():
     pixels = fuel_map(grid)
     pix = pixels["pix"].to_numpy()
     extract(dates, pix, grid[2])
+    import mixture  # step 2b; imports this module
+    mixture.run(dates, pixels, grid)
     ci = pd.Index(pd.read_parquet(INTERIM / "grid.parquet")["cell_id"]
                   ).get_indexer(pixels["cell_id"])
     candidates, events = burns(dates, ci)

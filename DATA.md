@@ -330,8 +330,10 @@ that a fire of the day (or of the following days) never shows in it;
 A MODIS pixel is a **fuel pixel** of class *c* when *c* covers at least
 75 % of its area (estimated from the 25 m squares whose centre falls in the
 pixel). Pixels mixing classes, or fuel and non-fuel (forest edges, small
-woods among fields), are left out. A fuel pixel belongs to the cell that
-holds its centre. France has about 1.73 million fuel pixels.
+woods among fields), are left out; the rest of a fuel pixel (up to 25 %)
+is corrected for ([Mixture correction](#mixture-correction)). A fuel
+pixel belongs to the cell that holds its centre. France has about 1.73
+million fuel pixels.
 
 ### Usable pixels
 
@@ -353,15 +355,77 @@ composite** (16 days earlier), if it was usable there: it then counts as
 usable, and `vi_prev_share` counts it. Only values observed in the previous
 composite carry over, so a value is never used more than 16 days after its
 own composite. The reference distributions and the burn detection use
-observed values only.
+the values of each composite itself only, never carried-over ones.
 
 The NDVI and NBR features of a composite use the same usable pixels.
+
+### Mixture correction
+
+A fuel pixel is at least 75 % its main class; the rest of it (8.7 % on
+average: 5 % non-fuel land, 3.7 % other fuel classes) adds its own signal.
+A field harvested in July inside a forest pixel, for instance, lowers the
+pixel's NDVI just when fires happen. Before the percentiles, the values of
+every usable fuel pixel are corrected to those its main class would have
+alone:
+
+1. **What else is in the pixel.** The 25 m BD Forêt squares give the
+   share of each other fuel class. The rest of the pixel is non-fuel,
+   split between the Corine Land Cover groups found in the pixel:
+   cropland, vineyards and orchards, pastures, agriculture mixed with
+   natural vegetation, urban, wetlands, open water, sparse vegetation and
+   rock. The part that Corine maps as forest or natural vegetation there
+   (Corine ignores patches under 25 ha) is **other non-fuel**.
+2. **Local references**, per cell and composite: the median reflectance
+   (red, NIR, SWIR) of
+   - another fuel class: its usable fuel pixels at least 95 % pure in the
+     cell;
+   - a Corine group: up to 200 pixels of the cell (drawn once) with less
+     than 10 % BD Forêt fuel and at least 75 % of that group;
+   - other non-fuel: up to 200 pixels of the cell with less than 10 % BD
+     Forêt fuel, any group.
+
+   A reference needs 10 usable pixels; otherwise it is the median of the
+   references of the 3 × 3 cells around, otherwise the national median of
+   that composite.
+3. **Correction**, band by band, on the reflectances (light mixes
+   linearly within a pixel, NDVI and NBR do not; the red is recovered as
+   NIR × (1 − NDVI) / (1 + NDVI)):
+
+   ```
+   main = (observed − Σ_k share_k × reference_k) / (1 − Σ_k share_k)
+   ```
+
+   over the other contents *k* of the pixel, then NDVI and NBR are
+   recomputed from the corrected reflectances. A content with no reference
+   at all is assumed to look like the main class (it stays in the
+   denominator). If a corrected reflectance falls outside 0-1, the pixel
+   keeps its observed values.
+
+The reference distributions and the features use the corrected values; the
+burn detection uses the observed ones.
+
+77 % of the usable values are corrected (the others belong to pixels made
+of their main class only), 0.5 % give an implausible reflectance and are
+kept as observed. 90 % of the contaminant share has a reference from its
+own cell, 7 % from the cells around, 3 % national.
+
+**Effect** (2019-2023). Before the correction, the fuel pixels 75-90 %
+pure read lower than the ≥ 95 % pure ones of the same cell and class,
+most in July-August (NDVI −0.019, NBR −0.027): this lowered the
+July-August `ndvi_pct` of a typical cell by 0.035, most in cropland cells
+(correlation −0.53 with `lc_crops`). After it the gap is 0.000 for the
+NDVI and −0.007 for the NBR, the median cell shift +0.002 (correlation
+−0.20). The price is noise at pixel level: a pixel's own neighbours (a
+wheat or a maize field) differ from the cell's median, which widens the
+spread of the corrected pixels around their class reference by about 10 %
+in summer and 25 % in winter; averages over the cell's pixels smooth it
+out.
 
 ### Class percentiles
 
 For each fuel class *c* and each index (NDVI or NBR), the **reference
-distribution** is the set of all the values of the usable pixels of class
-*c* in all the **reference composites**: those whose 16 days all fall in
+distribution** is the set of all the (corrected) values of the usable
+pixels of class *c* in all the **reference composites**: those whose 16 days all fall in
 the training years 2015-2017 and 2019-2024 (the test years 2018 and 2025
 are never used). It pools the pixels of the class all over France and all
 the composites of the year, so it spans every state the class goes
@@ -399,7 +463,8 @@ A burn makes the NBR collapse (and the NDVI fall) from one composite to
 the next, and the scar lasts for months. Leaf fall, the curing of grass and
 image artefacts can also lower the NBR quickly, so a drop only counts as a
 burn when it is unusual for that pixel, for that time of year and for its
-surroundings. Composite after composite, on the series of each fuel pixel:
+surroundings. Composite after composite, on the observed (uncorrected)
+series of each fuel pixel:
 
 - **recent baselines**: the median of the pixel's last 4 usable NBR values
   that were not burn candidates (at least 2 needed), and the same for the
