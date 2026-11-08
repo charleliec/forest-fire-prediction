@@ -15,7 +15,10 @@ every cell of the grid and every day of FIRST_YEAR..LAST_YEAR:
 - fuel pixels (static, see build_vegetation.py): number of 250 m MODIS
   pixels of the cell with one BD Forêt fuel class, and the share of the
   cell's fuel area they hold;
-- calendar: ``date``;
+- calendar: ``date``, and school / public holidays of the day, the same
+  for every cell (see build_calendar.py): share of France's inhabitants on
+  school holiday, zones A / B / C on holiday, summer or shorter school
+  holidays, public holiday, bridge day, long weekend;
 - weather of the day (SIM2, see build_weather.VARIABLES);
 - antecedent weather, from the days *before* the day only: rain sums over
   3 / 7 / 30 days, days since the last rain >= 1 mm, mean t_max / rh over
@@ -106,6 +109,7 @@ def main(no_vegetation):
     fires = pd.read_parquet(INTERIM / "fires_cell_day.parquet")
     static = [pd.read_parquet(INTERIM / f"{name}_cell.parquet")
               for name in STATIC]
+    calendar = pd.read_parquet(INTERIM / "calendar_day.parquet")
     cells = grid["cell_id"].to_numpy()
 
     df = weather.merge(antecedent(weather, cells), on=["date", "cell_id"])
@@ -124,6 +128,10 @@ def main(no_vegetation):
     df["y"] = (df["y"] / 1000).astype("float32")
     for table in static:
         df = df.merge(table, on="cell_id", how="left")
+    n = len(df)
+    df = df.merge(calendar, on="date")
+    if len(df) != n:
+        raise SystemExit("missing calendar for some days")
     df = df.merge(fires[["cell_id", "date", "n_fires", "area_m2"]],
                   on=["cell_id", "date"], how="left")
     df["n_fires"] = df["n_fires"].fillna(0).astype("int16")
@@ -135,7 +143,8 @@ def main(no_vegetation):
         raise SystemExit("some fires were lost in the merge")
 
     first = ["cell_id", "date", "x", "y", "lon", "lat",
-             *(c for t in static for c in t.columns.drop("cell_id"))]
+             *(c for t in static for c in t.columns.drop("cell_id")),
+             *calendar.columns.drop("date")]
     last = ["fire", "n_fires", "area_m2"]
     df = df[first + [c for c in df.columns if c not in first + last] + last]
     df = df.sort_values(["date", "cell_id"]).reset_index(drop=True)

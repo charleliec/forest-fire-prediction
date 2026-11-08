@@ -39,6 +39,11 @@ FUEL_CLASSES = ["fuel_broadleaf_decid", "fuel_broadleaf_med",
                 "fuel_conifer_mixed", "fuel_mixed", "fuel_open_forest",
                 "fuel_heath_med", "fuel_heath_other", "fuel_grass"]
 SHARES = LANDCOVER + FOREST + FUEL_CLASSES
+# Calendar features: shares in [0, 1], then 0/1 flags.
+CALENDAR_SHARES = ["holiday_pop_share"]
+CALENDAR_FLAGS = ["holiday_zone_a", "holiday_zone_b", "holiday_zone_c",
+                  "summer_holiday", "short_holiday", "public_holiday",
+                  "bridge_day", "long_weekend"]
 
 
 class Dataset(BaseDataset):
@@ -88,6 +93,10 @@ class Dataset(BaseDataset):
         df["dry_gap"] = df["nbr_pct"] - df["ndvi_pct"]
         df["vi_px"] = (df["vi_valid_share"] * df["fuel_px"]).astype("int32")
         df["vi_age"] = rng.integers(1, 17, n).astype("int16")
+        calendar = {col: rng.uniform(size=n) for col in CALENDAR_SHARES}
+        calendar.update({col: (rng.uniform(size=n) < 0.3).astype("int8")
+                         for col in CALENDAR_FLAGS})
+        df = pd.concat([df, pd.DataFrame(calendar, index=df.index)], axis=1)
         logit = (-5 + 1.2 * df["t_max"] - 0.8 * df["rain_30d"]
                  + 0.6 * df["wind"] + propensity[df["cell_id"]])
         fire = pd.Series(rng.uniform(size=n) < 1 / (1 + np.exp(-logit)),
@@ -100,7 +109,7 @@ class Dataset(BaseDataset):
             "area_m2": (n_fires * rng.lognormal(7, 2, n)).astype("float32"),
         }, index=df.index)
         df = df.astype({c: "float32" for c in WEATHER + VEGETATION + ROADS
-                        + POPULATION + SHARES
+                        + POPULATION + SHARES + CALENDAR_SHARES
                         + ["fuel_pure_share", "x", "y", "lon", "lat"]})
 
         year = df["date"].dt.year

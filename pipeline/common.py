@@ -14,6 +14,7 @@ before the day, and the fire label.
     python pipeline/build_population.py  # INSEE 1 km grid -> per cell
     python pipeline/build_landcover.py   # Corine Land Cover -> per cell
     python pipeline/build_forest.py      # IGN BD Forêt v2 -> per cell
+    python pipeline/build_calendar.py    # school / public holidays -> per day
     python pipeline/build_vegetation.py  # MODIS + BD Forêt -> per composite
     python pipeline/assemble.py        # -> data/processed/firegrid.parquet
 
@@ -35,6 +36,7 @@ ROADS_DIR = RAW / "roads"
 POP_DIR = RAW / "population"
 LANDCOVER_DIR = RAW / "landcover"
 BDFORET_DIR = RAW / "bdforet"
+CALENDAR_DIR = RAW / "calendar"
 
 FIRST_YEAR, LAST_YEAR = 2015, 2025
 # Antecedent features (rolling rain, NDVI, burns) need data before

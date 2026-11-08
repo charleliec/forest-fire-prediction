@@ -140,6 +140,26 @@ polygons of that class: [Fuel classes](#fuel-classes).
 | `fuel_px` | Number of *fuel pixels* of the cell, the 250 m pixels the vegetation features use (a cell holds about 11 600 pixels) |
 | `fuel_pure_share` | Share of the cell's fuel area that lies in fuel pixels: low in fragmented landscapes, where the vegetation features rest on few pixels |
 
+### Calendar (school and public holidays of the day)
+
+People start most fires, and they are out more on days off. School
+holidays come from the Ministry of Education calendar per académie
+(data.education.gouv.fr) from September 2017, and from the zone A / B / C
+compilation of A. Augusti before (zones were redrawn in September 2015;
+Corsica has its own calendar, in no zone). Holidays run from the first
+day off to the Sunday before school resumes. These columns are the same
+for every cell on a given day.
+
+| Column | Description |
+|---|---|
+| `holiday_pop_share` | Share of the inhabitants of metropolitan France whose académie is on school holiday (INSEE 1 km grid, 2019) |
+| `holiday_zone_a`, `holiday_zone_b`, `holiday_zone_c` | 1 if zone A / B / C is on school holiday |
+| `summer_holiday` | 1 during the summer school holidays (zones A / B / C) |
+| `short_holiday` | 1 during any other school holiday (Toussaint, Christmas, winter, spring, Ascension bridge) of at least one zone |
+| `public_holiday` | 1 on a national public holiday (the two extra days of Alsace-Moselle are not counted) |
+| `bridge_day` | 1 on a working day between two days off ("pont", e.g. the Friday after Ascension) |
+| `long_weekend` | 1 on a day of a run of 3 or more days off (weekends, public holidays, bridge days) |
+
 ### Weather of the day (Météo-France SIM2, averaged over the cell)
 
 | Column | Description |
