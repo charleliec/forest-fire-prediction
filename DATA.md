@@ -527,7 +527,13 @@ last snowy one, a burn candidate of that pixel waits: it can be neither
 confirmed nor dismissed, and the values the pixel shows meanwhile stay out
 of its recent baselines. The first usable composite after that decides: a
 real scar is still there, while the after-melt browning is gone. Such a
-burn keeps its start; it is only known later.
+burn keeps its start; it is only known later. This removes about 50 km²
+of false burns (2016-2025), mostly in the Alps and Pyrenees from February
+to May. Its cost: of the BDIFF fires of 5 ha or more with a burn detected
+within 6 km and 32 days without this rule (248), 14 lose it, all
+late-winter pastoral burns in snowy mountain cells (Lozère, Corsica,
+Pyrenees, Alpes-Maritimes) whose grass or heath scar fades within the 64
+days.
 
 The seasonal baseline needs a year of data, and the rasters start in
 November 2014: burns are detected from February 2016 on. 0.27 is the usual
