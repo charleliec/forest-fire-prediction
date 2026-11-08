@@ -5,6 +5,55 @@ model is scored on how many fires fall in its daily top 50 cells
 (`capture`), and on average precision (`ap`). See [DATA.md](DATA.md) for the
 columns.
 
+## Setup
+
+### 1. Environment
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (Linux/macOS: source .venv/bin/activate)
+pip install -r requirements.txt
+```
+
+### 2. Data
+
+The data is not in git. It is published as a GitHub Release:
+**[data-v1](https://github.com/charleliec/forest-fire-prediction/releases/tag/data-v1)**,
+one file `firegrid.parquet` (281 MB, all years 2015-2025). Download it into
+`data/processed/`:
+
+```bash
+mkdir -p data/processed    # PowerShell: mkdir data/processed
+curl.exe -L -o data/processed/firegrid.parquet https://github.com/charleliec/forest-fire-prediction/releases/download/data-v1/firegrid.parquet
+```
+
+(`curl.exe` works in PowerShell, cmd and bash; in Windows PowerShell, plain
+`curl` is a different command.) Check the download:
+
+```bash
+sha256sum data/processed/firegrid.parquet               # bash
+Get-FileHash data/processed/firegrid.parquet            # PowerShell
+# b6f8b259487096d8ac407970b8a45fefcbe30bceaf893f191175c9f5596a9abc
+```
+
+Then build the splits:
+
+```bash
+benchopt prepare benchmark --config local_config.yml --force
+```
+
+This writes `benchmark/data/real/{train,public,private}.parquet` (train
+2015-2017 + 2019-2024, public 2018, private 2025 without labels).
+
+**The file holds the 2025 labels.** Never train or tune on 2025, and don't
+share the file outside the team.
+
+**New data versions** are new releases (`data-v2`, ...), listed on the
+[Releases page](https://github.com/charleliec/forest-fire-prediction/releases).
+When one comes out, download it the same way (replace `data-v1` in the
+URL), then re-run `prepare` with `--force`. Write the data version in your
+PR next to your scores.
+
 ## Where things are
 
 | Path | What you do with it |
@@ -15,24 +64,6 @@ columns.
 | `benchmark/datasets/real.py` | Train / public / private split |
 | `pipeline/` | Builds the data table from raw sources. You don't need to run it |
 | `template_starting_kit.ipynb` | Notebook for participants (EDA and baseline) |
-
-## Setup
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows  (Linux/macOS: source .venv/bin/activate)
-pip install -r requirements.txt
-```
-
-Data is not in git. Ask Charlelie for `firegrid.parquet`, put it in
-`data/processed/`, then build the splits:
-
-```bash
-benchopt prepare benchmark --config local_config.yml --force
-```
-
-This writes `benchmark/data/real/{train,public,private}.parquet`. Re-run it
-(with `--force`) whenever you get a new `firegrid.parquet`.
 
 ## Writing a model
 

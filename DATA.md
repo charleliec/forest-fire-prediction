@@ -3,6 +3,8 @@
 **One row = one (25 km cell, day)** over metropolitan France (977 cells,
 Corsica included), 2015-2025. Built by `pipeline/` into
 `data/processed/firegrid.parquet`, then split by `benchmark/datasets/real.py`.
+Download: [GitHub release data-v1](https://github.com/charleliec/forest-fire-prediction/releases/tag/data-v1)
+(setup steps in [CONTRIBUTING.md](CONTRIBUTING.md#2-data)).
 
 | Split | Years | Label | File |
 |---|---|---|---|
